@@ -1,0 +1,1644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Spotted">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Spotted — item bingo and sighting tracker">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
+<title>Spotted · Item Bingo</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+:root{
+  --paper:#ffffff;--paperDark:#f5f5f5;--paperGrid:#e0e0e0;
+  --ink:#111;--inkLight:#555;--inkFaint:#999;
+  --accent1:#111;--accent2:#555;
+  --washi1:rgba(0,0,0,0.04);--shadow:rgba(0,0,0,0.07);
+  --good:#16a34a;--warn:#f59e0b;--bad:#ef4444;
+  --check:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/16px 16px;
+}
+[data-theme="dark"]{
+  --paper:#0a0a0a;--paperDark:#151515;--paperGrid:#262626;
+  --ink:#e5e5e5;--inkLight:#aaa;--inkFaint:#666;
+  --accent1:#e5e5e5;--accent2:#aaa;
+  --washi1:rgba(255,255,255,0.05);--shadow:rgba(0,0,0,0.4);
+  --check:repeating-conic-gradient(#1c1c1c 0% 25%,#121212 0% 50%) 50%/16px 16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:Quicksand,sans-serif;color:var(--ink);background:var(--paper);overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+button{font-family:inherit;cursor:pointer;color:inherit}
+input,select,textarea{font-family:inherit;color:var(--ink)}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--paperGrid);border-radius:4px}
+
+/* ── Shell ── */
+.app{display:flex;flex-direction:column;min-height:100vh;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--paper);border-bottom:1px solid var(--paperGrid)}
+.brand{font-family:'Permanent Marker',cursive;font-size:22px;letter-spacing:.5px;line-height:1}
+.brand small{font-family:Quicksand;font-size:9px;color:var(--inkFaint);letter-spacing:0;margin-left:4px}
+.spacer{flex:1}
+.me-pill{display:flex;align-items:center;gap:5px;padding:4px 10px 4px 4px;border-radius:20px;border:1px solid var(--paperGrid);background:var(--paper);font-size:12px;font-weight:600}
+.sync-dot{font-size:10px;white-space:nowrap}
+.icon-btn{border:none;background:transparent;font-size:18px;padding:4px 6px;border-radius:8px}
+.icon-btn:active{background:var(--washi1)}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;background:var(--paper);border-top:1px solid var(--paperGrid);padding-bottom:env(safe-area-inset-bottom)}
+.tabbar button{flex:1;border:none;background:none;padding:8px 0 10px;font-size:10px;font-weight:600;color:var(--inkFaint);display:flex;flex-direction:column;align-items:center;gap:2px}
+.tabbar button .ti{font-size:20px;line-height:1}
+.tabbar button.on{color:var(--ink)}
+.tabbar button.on .ti{transform:scale(1.1)}
+.fab{position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:61;border:none;border-radius:28px;background:var(--accent1);color:var(--paper);font-weight:700;font-size:15px;padding:14px 20px;box-shadow:0 6px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:6px}
+.fab:active{transform:scale(.96)}
+.content{padding:10px 12px 20px;flex:1}
+
+/* ── Controls ── */
+.btn{padding:7px 12px;border-radius:8px;border:none;font-size:13px;font-weight:600;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+.btn:active{transform:scale(.97)}
+.btn-p{background:var(--accent1);color:var(--paper)}
+.btn-s{background:var(--paper);color:var(--ink);border:1px solid var(--paperGrid)}
+.btn-g{background:transparent;color:var(--inkLight)}
+.btn-d{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+.btn-sm{font-size:11px;padding:4px 8px}
+.btn-block{width:100%}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.m-in{padding:9px 12px;border-radius:10px;border:1px solid var(--paperGrid);background:var(--paper);font-size:15px;outline:none;width:100%}
+.m-in:focus{border-color:var(--accent2)}
+textarea.m-in{min-height:64px;resize:vertical}
+.m-lbl{font-size:11px;font-weight:700;color:var(--inkLight);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 5px;display:flex;align-items:center;gap:6px}
+.m-lbl .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:600}
+.hint{font-size:11px;color:var(--inkFaint);line-height:1.45}
+.row{display:flex;gap:6px;align-items:center}
+.wrap{flex-wrap:wrap}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;padding:5px 11px;border-radius:16px;border:1px solid var(--paperGrid);background:var(--paper);font-size:12px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.chip.on{background:var(--accent1);color:var(--paper);border-color:var(--accent1)}
+.chip .x{opacity:.6;margin-left:2px}
+.pdot{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
+.pdot.sm{width:15px;height:15px;font-size:8px}
+.seg{display:flex;border:1px solid var(--paperGrid);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:none;background:var(--paper);padding:7px 6px;font-size:12px;font-weight:600;color:var(--inkLight)}
+.seg button.on{background:var(--accent1);color:var(--paper)}
+.toggle{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0}
+.toggle input{width:18px;height:18px;accent-color:var(--accent1)}
+.empty{text-align:center;padding:40px 16px;color:var(--inkFaint);font-size:14px;line-height:1.6}
+.empty .big{font-size:44px;margin-bottom:6px}
+
+/* ── Modal (bottom sheet on phone) ── */
+.mo-ov{position:fixed;inset:0;background:rgba(20,16,12,.42);backdrop-filter:blur(3px);z-index:1000;display:flex;align-items:flex-end;justify-content:center}
+.mo{background:var(--paper);width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;box-shadow:0 -6px 30px rgba(0,0,0,.2);animation:up .18s ease-out}
+@media(min-width:700px){.mo-ov{align-items:center}.mo{border-radius:16px;max-height:88vh}}
+@keyframes up{from{transform:translateY(30px);opacity:.4}to{transform:none;opacity:1}}
+.mo-h{display:flex;align-items:center;gap:8px;padding:14px 16px 8px}
+.mo-h h3{font-size:19px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mo-b{padding:4px 16px 16px;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch}
+.mo-f{display:flex;gap:8px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--paperGrid)}
+.mo-f .btn{flex:1;padding:11px}
+.mo-ov.l2{z-index:1100}.mo-ov.l3{z-index:1200}
+
+/* ── Items grid ── */
+.inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+@media(max-width:600px){.inv-grid{grid-template-columns:repeat(2,1fr);gap:8px}}
+.inv-card{position:relative;border-radius:12px;background:var(--paper);border:1px solid var(--paperGrid);overflow:hidden;box-shadow:0 1px 4px var(--shadow);user-select:none;-webkit-user-select:none}
+.inv-card:active{transform:scale(.98)}
+.inv-imgw{width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;background:var(--paperDark);overflow:hidden}
+.inv-imgw img{width:100%;height:100%;object-fit:cover}
+.inv-noimg{font-size:42px;opacity:.5}
+.inv-info{padding:7px 9px 8px}
+.inv-name{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv-meta{display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;color:var(--inkFaint);min-height:15px}
+.ribbon{position:absolute;top:8px;left:-2px;z-index:3;padding:2px 8px 2px 6px;font-size:10px;font-weight:700;color:#fff;border-radius:0 5px 5px 0;background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.ribbon.none{background:linear-gradient(135deg,#9ca3af,#6b7280)}
+/* sticker (dashed outline) mode */
+.sticker .inv-card{background:transparent;border:none;box-shadow:none;overflow:visible}
+.sticker .inv-imgw{background:transparent;aspect-ratio:auto;min-height:120px}
+.sticker .inv-imgw img{object-fit:contain;height:auto;max-height:46vw}
+@media(min-width:600px){.sticker .inv-imgw img{max-height:210px}}
+.sticker .inv-imgw img[data-cut="pending"]{opacity:.35}
+.sticker .inv-info{text-align:center;padding:2px}
+.sticker .inv-meta{justify-content:center}
+.sticker .ribbon{top:2px;left:2px;border-radius:5px}
+
+/* ── Calendar ── */
+.cal-h{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.cal-h h2{font-size:20px;flex:1;text-align:center}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-dow{font-size:10px;font-weight:700;text-align:center;color:var(--inkFaint);padding:2px 0}
+.cal-cell{min-height:64px;border:1px solid var(--paperGrid);border-radius:8px;padding:2px;position:relative;background:var(--paper);display:flex;flex-direction:column}
+.cal-cell.out{opacity:.35}
+.cal-cell.today{border-color:var(--accent1);border-width:2px}
+.cal-cell .dn{font-size:10px;font-weight:700;color:var(--inkLight)}
+.cal-thumbs{display:flex;flex-wrap:wrap;gap:1px;margin-top:1px}
+.cal-thumbs img,.cal-thumbs span{width:20px;height:20px;border-radius:4px;object-fit:contain;background:var(--paperDark);font-size:12px;display:flex;align-items:center;justify-content:center}
+.cal-more{font-size:9px;color:var(--inkFaint);font-weight:700}
+.cal-dots{position:absolute;right:3px;top:3px;display:flex;gap:1px}
+.cal-dots i{width:6px;height:6px;border-radius:50%;display:block}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}
+.stat{border:1px solid var(--paperGrid);border-radius:10px;padding:8px;text-align:center}
+.stat b{display:block;font-size:20px}
+.stat span{font-size:10px;color:var(--inkFaint);font-weight:600}
+
+/* ── Bingo ── */
+.card-list{display:grid;gap:10px}
+.card-tile{border:1px solid var(--paperGrid);border-radius:14px;padding:10px;display:flex;gap:10px;align-items:center;background:var(--paper)}
+.mini{display:grid;gap:2px;width:64px;height:64px;flex-shrink:0}
+.mini i{border-radius:2px;background:var(--paperGrid)}
+.mini i.d{background:var(--accent1)}
+.mini i.f{background:#f59e0b}
+.bingo-wrap{max-width:560px;margin:0 auto}
+.bingo-title{text-align:center;font-family:'Permanent Marker',cursive;font-size:26px;margin:4px 0 2px}
+.bingo-letters{display:grid;gap:4px;margin-bottom:4px}
+.bingo-letters b{text-align:center;font-family:'Permanent Marker',cursive;font-size:22px}
+.bingo{display:grid;gap:4px;padding:6px;border:3px solid var(--accent1);border-radius:14px;background:var(--paper)}
+.bc{position:relative;aspect-ratio:1/1;border:1px solid var(--paperGrid);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3px;overflow:hidden;background:var(--paper);text-align:center}
+.bc img{max-width:100%;max-height:72%;object-fit:contain}
+.bc .bl{font-size:10px;font-weight:700;line-height:1.1;max-height:2.3em;overflow:hidden;margin-top:1px;word-break:break-word}
+.size-5 .bc .bl{font-size:8.5px}
+.bc .bic{font-size:24px;line-height:1}
+.size-5 .bc .bic{font-size:18px}
+.bc.free{background:repeating-linear-gradient(45deg,var(--paperDark),var(--paperDark) 6px,var(--paper) 6px,var(--paper) 12px)}
+.bc.empty{border-style:dashed;color:var(--inkFaint)}
+.bc .kind{position:absolute;top:2px;left:3px;font-size:9px;opacity:.6}
+.bc .lock{position:absolute;top:2px;right:3px;font-size:9px}
+.bc .stamp{position:absolute;inset:8%;border-radius:50%;opacity:.42;mix-blend-mode:multiply;pointer-events:none;animation:stamp .25s ease-out}
+[data-theme="dark"] .bc .stamp{mix-blend-mode:screen;opacity:.5}
+@keyframes stamp{from{transform:scale(1.6);opacity:0}to{transform:scale(1)}}
+.bc .by{position:absolute;bottom:2px;right:2px;display:flex;gap:1px}
+.bc.win{box-shadow:0 0 0 2px #f59e0b inset}
+.bc.done img{filter:none}
+.bingo-banner{text-align:center;font-family:'Permanent Marker',cursive;font-size:34px;color:#f59e0b;text-shadow:2px 2px 0 var(--accent1);margin:6px 0;animation:pop .5s}
+@keyframes pop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+.confetti{position:fixed;top:-10px;width:8px;height:14px;z-index:2000;pointer-events:none;animation:fall linear forwards}
+@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+
+/* ── Photo studio ── */
+.studio{border:1px solid var(--paperGrid);border-radius:12px;padding:8px}
+.studio-prev{position:relative;width:100%;min-height:180px;max-height:46vh;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--check);overflow:hidden}
+.studio-prev img{max-width:100%;max-height:46vh;object-fit:contain}
+.studio-prev.white{background:#fff}
+.studio-busy{position:absolute;inset:0;background:rgba(255,255,255,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;color:#111;text-align:center;padding:12px}
+.spin{width:28px;height:28px;border:3px solid #ddd;border-top-color:#111;border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tools{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}
+.tools .btn{font-size:12px;padding:9px 6px}
+.src-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.src-row .btn{flex-direction:column;font-size:11px;padding:10px 4px}
+.src-row .btn span{font-size:20px}
+.ver-row{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px}
+.ver{flex-shrink:0;width:54px;height:54px;border-radius:8px;border:2px solid var(--paperGrid);background:var(--check);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.ver img{max-width:100%;max-height:100%}
+.ver.on{border-color:var(--accent1)}
+.ver small{position:absolute;bottom:0;left:0;right:0;font-size:7px;background:rgba(0,0,0,.6);color:#fff;font-weight:700}
+/* touch-up editor */
+.te-wrap{position:relative;touch-action:none;background:var(--check);border-radius:10px;overflow:hidden;display:flex;justify-content:center}
+.te-wrap canvas{max-width:100%;max-height:58vh;display:block}
+
+/* ── Lists ── */
+.li{display:flex;align-items:center;gap:8px;padding:9px 2px;border-top:1px solid var(--paperGrid)}
+.li:first-child{border-top:none}
+.li .grow{flex:1;min-width:0}
+.li .t{font-size:14px;font-weight:600}
+.li .s{font-size:11px;color:var(--inkFaint);margin-top:1px}
+.thumb{width:44px;height:44px;border-radius:8px;object-fit:contain;background:var(--paperDark);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px}
+.pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+.pick{border:1px solid var(--paperGrid);border-radius:10px;padding:4px;text-align:center;background:var(--paper)}
+.pick img,.pick .thumb{width:100%;height:64px;object-fit:contain;border-radius:6px}
+.pick div{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick.on{border:2px solid var(--accent1)}
+.toast{position:fixed;left:50%;bottom:calc(140px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--accent1);color:var(--paper);padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;z-index:3000;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:up .2s}
+.kbd{font-family:ui-monospace,monospace;font-size:11px;background:var(--paperDark);padding:1px 5px;border-radius:4px}
+.sec{border:1px solid var(--paperGrid);border-radius:12px;padding:10px 12px;margin-top:10px}
+.sec h4{font-size:14px;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div id="mr"></div>
+<input type="file" id="file-cam" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="file-gal" accept="image/*" style="display:none">
+<input type="file" id="file-json" accept=".json,application/json" style="display:none">
+<script>
+// ════════════════════════════════════════════════════════════════
+//  SPOTTED — Item Bingo  ·  companion app to Decade Journal
+//  Data lives in: localStorage (state) + IndexedDB (images, backups)
+//  + Firebase RTDB at rooms/<room>/bingo, bingo_images, bingo_img_meta
+//  (inside the same rooms/$room node the journal uses, so the journal's
+//   existing rules already allow it and nothing collides with rooms/<room>/data)
+// ════════════════════════════════════════════════════════════════
+var APP_VERSION='v1.0';
+var COLLS=['people','categories','items','sightings','places','cards','meta'];
+
+// ── utils ──
+function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function jsq(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ');}
+function tod(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function fmtDate(s){if(!s)return'';var p=s.split('-');var d=new Date(+p[0],+p[1]-1,+p[2]);return d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:(+p[0]===new Date().getFullYear()?undefined:'numeric')});}
+function now(){return Date.now();}
+function vals(o){return Object.keys(o||{}).map(function(k){return o[k];});}
+function $(id){return document.getElementById(id);}
+var _dbt={};function debounce(key,fn,ms){clearTimeout(_dbt[key]);_dbt[key]=setTimeout(fn,ms||300);}
+function toast(msg,ms){var t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(function(){t.remove();},ms||2200);}
+function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function clone(o){return JSON.parse(JSON.stringify(o));}
+
+// ── local settings (never synced unless noted) ──
+var LS_KEY='ib_local';
+var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all',sort:'recent',search:'',calY:new Date().getFullYear(),calM:new Date().getMonth(),
+  geminiKey:'',openaiKey:'',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
+  bgModel:'isnet_fp16',autoProcess:'none',syncKeys:false,activeCard:''};
+try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
+function svL(){try{localStorage.setItem(LS_KEY,JSON.stringify(L));}catch(e){}}
+
+// ── shared state ──
+var DEFAULT_PROMPT='Turn this photo into a clean e-commerce product photo of the main item only.\n'+
+'- Remove the background, hands, hangers, people, tags and clutter. Place the item centered on a pure white (#FFFFFF) seamless background with soft, even studio lighting and a faint natural shadow.\n'+
+'- Keep the item exactly as it is: same colors, prints, logos, text, stitching, materials and proportions. Do not redesign, restyle or add anything.\n'+
+'- Clothing (shirts, tees, hoodies, jackets, sweaters, pants, jeans, shorts, dresses): show it laid perfectly flat, front-facing, neatly smoothed out in its natural garment shape, sleeves/legs straight and symmetrical, like a flat-lay on an online store product page.\n'+
+'- Shoes: clean side profile of a single shoe (or the pair if both are visible). Bags, toys, gadgets and other objects: straight-on 3/4 product angle.\n'+
+'- Square 1:1 framing with generous white margin around the item. No text, watermark or props.';
+var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{}};
+var ST_KEY='ib_state';
+function ld(){
+  try{var d=JSON.parse(localStorage.getItem(ST_KEY)||'null');if(d)COLLS.forEach(function(c){if(d[c])S[c]=d[c];});S._ts=d&&d._ts||0;}catch(e){console.warn('ld',e);}
+}
+function seedDefaults(){
+  var t=now();
+  if(!Object.keys(S.people).length){
+    var j={id:'p_jerico',name:'Jerico',color:'#0ea5e9',u:t},a={id:'p_angela',name:'Angela',color:'#8b5cf6',u:t};
+    S.people[j.id]=j;S.people[a.id]=a;dirty('people',j.id);dirty('people',a.id);
+  }
+  if(!Object.keys(S.categories).length){
+    [['👟','Sneakers','#f97316','single shoe, side profile'],['🧥','Jackets','#0ea5e9','jacket laid flat, front view, sleeves spread'],['👕','Shirts & Tees','#22c55e','laid flat, front view'],['👖','Pants','#6366f1','laid flat, legs straight'],['🧸','Toys & Collectibles','#ec4899',''],['🚗','Cars','#ef4444','3/4 front view'],['🐶','Animals','#a16207','keep the animal natural, just clean white background']]
+    .forEach(function(c,i){var id='c_'+c[1].toLowerCase().replace(/[^a-z]+/g,'');// fixed ids so two fresh phones don't duplicate defaults
+      S.categories[id]={id:id,icon:c[0],name:c[1],color:c[2],hint:c[3],order:i,u:t};dirty('categories',id);});
+  }
+  if(!S.meta.shared){S.meta.shared={id:'shared',prompt:DEFAULT_PROMPT,u:t};dirty('meta','shared');}
+  if(!L.me||!S.people[L.me]){L.me=Object.keys(S.people)[0];svL();}
+}
+var _svTimer=null;
+function sv(){
+  S._ts=now();
+  clearTimeout(_svTimer);
+  _svTimer=setTimeout(_svNow,150);
+  fbScheduleWrite();
+}
+function _svNow(){
+  _svTimer=null;
+  var d={_ts:S._ts};COLLS.forEach(function(c){d[c]=S[c];});
+  var js=JSON.stringify(d);
+  try{localStorage.setItem(ST_KEY,js);}catch(e){console.warn('localStorage full',e);}
+  idbPut('state','current',js);// IndexedDB mirror — survives a localStorage wipe
+}
+// upsert helpers — every entity carries u (updated-at) for merge
+function put(coll,obj){obj.u=now();S[coll][obj.id]=obj;dirty(coll,obj.id);sv();return obj;}
+function del(coll,id){delete S[coll][id];dirty(coll,id);sv();}
+function shared(){return (S.meta&&S.meta.shared)||{prompt:DEFAULT_PROMPT};}
+
+// ── lookups ──
+function person(id){return S.people[id];}
+function peopleList(){return vals(S.people).sort(function(a,b){return(a.order||0)-(b.order||0)||a.name.localeCompare(b.name);});}
+function catList(){return vals(S.categories).sort(function(a,b){return(a.order||0)-(b.order||0)||a.name.localeCompare(b.name);});}
+function cat(id){return S.categories[id];}
+function itemSightings(itemId){return vals(S.sightings).filter(function(s){return s.item===itemId;}).sort(function(a,b){return(b.date||'').localeCompare(a.date||'')||(b.u||0)-(a.u||0);});}
+var _sCache=null;
+function sightIndex(){
+  if(_sCache&&_sCache.ts===S._ts)return _sCache;
+  var by={};vals(S.sightings).forEach(function(s){(by[s.item]=by[s.item]||[]).push(s);});
+  Object.keys(by).forEach(function(k){by[k].sort(function(a,b){return(b.date||'').localeCompare(a.date||'');});});
+  _sCache={ts:S._ts,by:by};return _sCache;
+}
+function pdot(pid,sm){var p=person(pid);if(!p)return'';return'<span class="pdot'+(sm?' sm':'')+'" style="background:'+p.color+'" title="'+esc(p.name)+'">'+esc(p.name.charAt(0).toUpperCase())+'</span>';}
+function placeName(id){var p=S.places[id];return p?p.name:'';}
+
+// ════════════ IndexedDB (images + state mirror + backups) ════════════
+var _idb=null,_idbWait=[];
+function idbOpen(cb){
+  if(_idb)return cb(_idb);
+  _idbWait.push(cb);if(_idbWait.length>1)return;
+  var req;try{req=indexedDB.open('spotted_db',1);}catch(e){_idbWait.forEach(function(f){f(null);});_idbWait=[];return;}
+  req.onupgradeneeded=function(e){var db=e.target.result;['imgs','state','cuts'].forEach(function(n){if(!db.objectStoreNames.contains(n))db.createObjectStore(n);});};
+  req.onsuccess=function(e){_idb=e.target.result;var w=_idbWait;_idbWait=[];w.forEach(function(f){f(_idb);});};
+  req.onerror=function(){var w=_idbWait;_idbWait=[];w.forEach(function(f){f(null);});};
+}
+function idbPut(store,key,val,cb){idbOpen(function(db){if(!db){cb&&cb();return;}try{var tx=db.transaction(store,'readwrite');tx.objectStore(store).put(val,key);tx.oncomplete=function(){cb&&cb();};tx.onerror=function(){cb&&cb();};}catch(e){cb&&cb();}});}
+function idbGet(store,key,cb){idbOpen(function(db){if(!db)return cb(null);try{var r=db.transaction(store,'readonly').objectStore(store).get(key);r.onsuccess=function(){cb(r.result||null);};r.onerror=function(){cb(null);};}catch(e){cb(null);}});}
+function idbDel(store,key){idbOpen(function(db){if(!db)return;try{db.transaction(store,'readwrite').objectStore(store).delete(key);}catch(e){}});}
+function idbAll(store,cb){idbOpen(function(db){if(!db)return cb({});try{var out={};var r=db.transaction(store,'readonly').objectStore(store).openCursor();r.onsuccess=function(e){var c=e.target.result;if(c){out[c.key]=c.value;c.continue();}else cb(out);};r.onerror=function(){cb(out);};}catch(e){cb({});}});}
+
+// ════════════ Image store ════════════
+// Images are immutable: each edit creates a new key. Items point at keys.
+var IMG={};           // key -> dataURL (memory)
+var _imgLoading={};
+function imgSave(dataUrl){
+  var k='i'+gid();IMG[k]=dataUrl;idbPut('imgs',k,dataUrl);
+  imgQueueUpload(k);return k;
+}
+function imgGet(k,cb){
+  if(!k)return cb(null);
+  if(IMG[k])return cb(IMG[k]);
+  (_imgLoading[k]=_imgLoading[k]||[]).push(cb);
+  if(_imgLoading[k].length>1)return;
+  idbGet('imgs',k,function(d){
+    if(d){IMG[k]=d;return _imgDone(k,d);}
+    fbFetchImage(k,function(d2){if(d2){IMG[k]=d2;idbPut('imgs',k,d2);}_imgDone(k,d2);});
+  });
+}
+function _imgDone(k,d){var w=_imgLoading[k]||[];delete _imgLoading[k];w.forEach(function(f){f(d);});}
+function imgHTML(k,cls,attrs){return k?'<img data-k="'+k+'" class="'+(cls||'')+'" alt="" '+(attrs||'')+'>':'';}
+// Fill every <img data-k> under root; sticker versions for data-st
+function hydrate(root){
+  (root||document).querySelectorAll('img[data-k]:not([data-h])').forEach(function(el){
+    el.setAttribute('data-h','1');
+    var k=el.getAttribute('data-k');
+    var wantSticker=el.hasAttribute('data-st');
+    imgGet(k,function(d){
+      if(!d){el.style.display='none';return;}
+      if(!wantSticker){el.src=d;return;}
+      if(CUT[k]){el.src=CUT[k];el.setAttribute('data-cut','done');return;}
+      el.src=d;el.setAttribute('data-cut','pending');
+      stickerQueue(k,d,function(s){if(s){el.src=s;el.setAttribute('data-cut','done');}else el.removeAttribute('data-cut');});
+    });
+  });
+}
+
+// ════════════ Firebase sync ════════════
+var FB={db:null,room:'',base:null,connected:false,listener:null,firstPull:false,writing:false,lastOk:0,err:'',paused:localStorage.getItem('ib_fb_paused')==='1'};
+var DIRTY={};try{DIRTY=JSON.parse(localStorage.getItem('ib_dirty')||'{}');}catch(e){}
+var KNOWN={};try{KNOWN=JSON.parse(localStorage.getItem('ib_known')||'{}');}catch(e){}
+var IMGQ=[];try{IMGQ=JSON.parse(localStorage.getItem('ib_imgq')||'[]');}catch(e){}
+function dirty(coll,id){DIRTY[coll+'/'+id]=1;try{localStorage.setItem('ib_dirty',JSON.stringify(DIRTY));}catch(e){}}
+function fbCfg(){
+  var c=null;try{c=JSON.parse(localStorage.getItem('ib_fb_config')||'null');}catch(e){}
+  if(!c){try{c=JSON.parse(localStorage.getItem('fb_config')||'null');}catch(e){}}// same-origin Decade Journal config
+  return c;
+}
+function fbRoom(){return localStorage.getItem('ib_fb_room')||localStorage.getItem('fb_room')||'';}
+function fbInit(cfg,room){
+  if(!cfg||!cfg.apiKey||!cfg.databaseURL||!room)return false;
+  if(typeof firebase==='undefined'){FB.err='Firebase library failed to load (offline?)';return false;}
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(cfg);
+    FB.db=firebase.database();
+    if(FB.listener&&FB.base)FB.base.off('value',FB.listener);
+    FB.room=room;FB.base=FB.db.ref('rooms/'+room+'/bingo');FB.connected=true;FB.firstPull=false;FB.err='';
+    localStorage.setItem('ib_fb_config',JSON.stringify(cfg));localStorage.setItem('ib_fb_room',room);
+    if(localStorage.getItem('ib_known_room')!==room){KNOWN={};localStorage.setItem('ib_known_room',room);_saveKnown();}
+    FB.listener=FB.base.on('value',fbOnValue,function(e){FB.err=e.message||String(e);syncBadge();});
+    return true;
+  }catch(e){FB.err=e.message;FB.connected=false;return false;}
+}
+function fbDisconnect(){
+  if(FB.listener&&FB.base)FB.base.off('value',FB.listener);
+  FB.connected=false;FB.base=null;FB.listener=null;
+  localStorage.removeItem('ib_fb_room');syncBadge();
+}
+function _saveKnown(){try{localStorage.setItem('ib_known',JSON.stringify(KNOWN));}catch(e){}}
+function fbOnValue(snap){
+  var d=snap.val()||{};
+  var changed=false;
+  COLLS.forEach(function(c){
+    var cloud=d[c]||{};
+    if(!S[c])S[c]={};
+    Object.keys(cloud).forEach(function(id){
+      var key=c+'/'+id;KNOWN[key]=1;
+      if(DIRTY[key])return;// local edit pending — local wins until flushed
+      var cv=cloud[id],lv=S[c][id];
+      if(!lv||(cv.u||0)>(lv.u||0)){S[c][id]=cv;changed=true;}
+    });
+    Object.keys(S[c]).forEach(function(id){
+      var key=c+'/'+id;
+      if(cloud[id]||DIRTY[key])return;
+      if(KNOWN[key]){delete S[c][id];delete KNOWN[key];changed=true;}// deleted on another device
+      else dirty(c,id);// local-only (made offline / before first sync) → push up
+    });
+  });
+  _saveKnown();
+  FB.firstPull=true;FB.lastOk=now();
+  if(changed){S._ts=now();_svNow();scheduleRender();}
+  if(Object.keys(DIRTY).length)fbScheduleWrite();
+  fbPumpImages();
+  syncBadge();
+}
+var _fbWT=null;
+function fbScheduleWrite(){if(!FB.connected||FB.paused)return;clearTimeout(_fbWT);_fbWT=setTimeout(fbFlush,600);syncBadge();}
+function fbFlush(){
+  _fbWT=null;
+  if(!FB.connected||!FB.base||FB.paused||!FB.firstPull)return;
+  var keys=Object.keys(DIRTY);if(!keys.length)return syncBadge();
+  var up={};
+  keys.forEach(function(k){
+    var p=k.split('/'),c=p[0],id=p[1];
+    var v=S[c]&&S[c][id];
+    if(v&&c==='meta'&&id==='keys'&&!L.syncKeys)return;
+    up[k]=v?JSON.parse(JSON.stringify(v)):null;
+  });
+  FB.writing=true;syncBadge();
+  FB.base.update(up).then(function(){
+    keys.forEach(function(k){if(up.hasOwnProperty(k)){delete DIRTY[k];if(up[k])KNOWN[k]=1;else delete KNOWN[k];}});
+    try{localStorage.setItem('ib_dirty',JSON.stringify(DIRTY));}catch(e){}
+    _saveKnown();FB.writing=false;FB.lastOk=now();FB.err='';syncBadge();
+  }).catch(function(e){FB.writing=false;FB.err=e.message||'write failed';syncBadge();setTimeout(fbScheduleWrite,5000);});
+}
+function fbTogglePause(){FB.paused=!FB.paused;localStorage.setItem('ib_fb_paused',FB.paused?'1':'0');if(!FB.paused)fbScheduleWrite();syncBadge();}
+// images
+function imgQueueUpload(k){if(IMGQ.indexOf(k)<0)IMGQ.push(k);try{localStorage.setItem('ib_imgq',JSON.stringify(IMGQ));}catch(e){}fbPumpImages();}
+var _pumping=false;
+function fbPumpImages(){
+  if(_pumping||!FB.connected||FB.paused||!FB.db||!IMGQ.length)return;
+  _pumping=true;
+  var k=IMGQ[0];
+  var done=function(ok){
+    if(ok||ok===null){IMGQ.shift();try{localStorage.setItem('ib_imgq',JSON.stringify(IMGQ));}catch(e){}}
+    _pumping=false;syncBadge();
+    if(ok!==false)setTimeout(fbPumpImages,60);else setTimeout(fbPumpImages,8000);
+  };
+  imgGet(k,function(d){
+    if(!d)return done(null);
+    var r='rooms/'+FB.room+'/';
+    FB.db.ref(r+'bingo_images/'+k).set(d).then(function(){return FB.db.ref(r+'bingo_img_meta/'+k).set({n:d.length,u:now()});})
+      .then(function(){done(true);}).catch(function(e){FB.err='Image upload: '+(e.message||e);done(false);});
+  });
+}
+function fbFetchImage(k,cb){
+  if(!FB.connected||!FB.db)return cb(null);
+  FB.db.ref('rooms/'+FB.room+'/bingo_images/'+k).once('value').then(function(s){cb(s.val());}).catch(function(){cb(null);});
+}
+function fbDeleteImage(k){
+  if(!k)return;delete IMG[k];idbDel('imgs',k);delete CUT[k];idbDel('cuts',k);
+  var qi=IMGQ.indexOf(k);if(qi>=0){IMGQ.splice(qi,1);try{localStorage.setItem('ib_imgq',JSON.stringify(IMGQ));}catch(e){}}
+  if(FB.connected&&FB.db){var r='rooms/'+FB.room+'/';FB.db.ref(r+'bingo_images/'+k).remove().catch(function(){});FB.db.ref(r+'bingo_img_meta/'+k).remove().catch(function(){});}
+}
+function syncBadge(){
+  var el=$('sync-dot');if(!el)return;
+  var h;
+  if(!FB.connected)h='<span style="color:var(--inkFaint)">⚫ local</span>';
+  else if(FB.paused)h='<span style="color:var(--warn)">⏸ paused</span>';
+  else if(FB.err)h='<span style="color:var(--bad)">🔴 error</span>';
+  else if(_fbWT||FB.writing||_pumping||Object.keys(DIRTY).length||IMGQ.length)h='<span style="color:var(--warn)">🟡 '+(IMGQ.length?IMGQ.length+' img':'sync')+'</span>';
+  else if(!FB.firstPull)h='<span style="color:var(--inkFaint)">⚫ …</span>';
+  else h='<span style="color:var(--good)">🟢</span>';
+  el.innerHTML=h;
+}
+setInterval(function(){if(FB.connected&&!FB.paused&&IMGQ.length&&!_pumping)fbPumpImages();},15000);
+
+// ════════════ Backup (real file — doesn't depend on browser storage) ════════════
+function exportBackup(withImages){
+  var keys={};
+  var d={_type:'spotted-backup',_v:1,_exported:new Date().toISOString()};
+  COLLS.forEach(function(c){d[c]=S[c];});
+  var finish=function(){
+    d.images=withImages?keys:{};
+    var blob=new Blob([JSON.stringify(d)],{type:'application/json'});
+    var fn='spotted-backup-'+tod()+(withImages?'':'-noimg')+'.json';
+    downloadBlob(blob,fn);
+    toast('Saved '+fn+' → Downloads');
+  };
+  if(!withImages)return finish();
+  idbAll('imgs',function(all){
+    var used=usedImageKeys();
+    used.forEach(function(k){if(all[k]||IMG[k])keys[k]=all[k]||IMG[k];});
+    finish();
+  });
+}
+function usedImageKeys(){var u={};vals(S.items).forEach(function(it){if(it.img)u[it.img]=1;if(it.orig)u[it.orig]=1;});vals(S.sightings).forEach(function(s){if(s.photo)u[s.photo]=1;});return Object.keys(u);}
+function downloadBlob(blob,fn){
+  // Android Chrome is happiest with a data: URL download
+  if(/Android/i.test(navigator.userAgent)){var r=new FileReader();r.onloadend=function(){var a=document.createElement('a');a.href=r.result;a.download=fn;document.body.appendChild(a);a.click();a.remove();};r.readAsDataURL(blob);}
+  else{var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fn;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href);},4000);}
+}
+function importFile(){
+  var inp=$('file-json');inp.value='';
+  inp.onchange=function(){
+    var f=inp.files[0];if(!f)return;
+    var r=new FileReader();
+    r.onload=function(){
+      var d;try{d=JSON.parse(r.result);}catch(e){return alert('Not valid JSON: '+e.message);}
+      if(d._type==='spotted-backup')return importSpotted(d);
+      if(d._type==='decade-journal-settings')return importJournalSettings(d);
+      if(d.events||d.places||d.people)return importJournalData(d);
+      alert('Unrecognised file. Expected a Spotted backup, Decade Journal settings, or Decade Journal backup.');
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function importSpotted(d){
+  var counts=COLLS.map(function(c){return Object.keys(d[c]||{}).length+' '+c;}).join(', ');
+  var mode=prompt('Import Spotted backup\n'+counts+'\n'+Object.keys(d.images||{}).length+' images\n\nType MERGE (keep newest of each) or REPLACE (wipe local first):','MERGE');
+  if(!mode)return;mode=mode.trim().toUpperCase();
+  if(mode==='REPLACE'){COLLS.forEach(function(c){Object.keys(S[c]).forEach(function(id){dirty(c,id);});S[c]={};});}
+  COLLS.forEach(function(c){var src=d[c]||{};Object.keys(src).forEach(function(id){var lv=S[c][id];if(!lv||(src[id].u||0)>=(lv.u||0)){S[c][id]=src[id];dirty(c,id);}});});
+  Object.keys(d.images||{}).forEach(function(k){IMG[k]=d.images[k];idbPut('imgs',k,d.images[k]);imgQueueUpload(k);});
+  sv();render();toast('Imported ✓');
+}
+function importJournalSettings(d){
+  if(!d.fb_config)return alert('That settings file has no Firebase config.');
+  var room=prompt('Decade Journal Firebase config found ('+d.fb_config.databaseURL+').\n\nRoom for Spotted (data goes to rooms/<room>/bingo — separate from the journal):',d.fb_room||'');
+  if(!room)return;
+  localStorage.setItem('ib_fb_config',JSON.stringify(d.fb_config));
+  fbInit(d.fb_config,room.trim());render();toast('Connected to room '+room);
+}
+function importJournalData(d){
+  var pp=(d.people||[]),pl=(d.places||[]).filter(function(p){return p&&p.name;});
+  if(!confirm('Decade Journal backup detected.\n\nImport '+pp.length+' people and '+pl.length+' places into Spotted?\n(Events/items are not imported.)'))return;
+  var t=now(),colors=['#0ea5e9','#8b5cf6','#f97316','#22c55e','#ec4899','#eab308','#14b8a6','#ef4444'];
+  pp.forEach(function(p,i){
+    if(vals(S.people).some(function(x){return x.name.toLowerCase()===String(p.name||'').toLowerCase();}))return;
+    var id='p_'+gid();S.people[id]={id:id,name:p.name,color:colors[(Object.keys(S.people).length)%colors.length],u:t};dirty('people',id);
+  });
+  pl.forEach(function(p){
+    if(vals(S.places).some(function(x){return x.name.toLowerCase()===p.name.toLowerCase();}))return;
+    var id='pl_'+gid();S.places[id]={id:id,name:p.name,address:p.address||'',lat:p.lat||null,lng:p.lng||null,u:t};dirty('places',id);
+  });
+  sv();render();toast('People & places imported');
+}
+
+// ════════════════════════════════════════════════════════════════
+//  IMAGE PIPELINE
+// ════════════════════════════════════════════════════════════════
+function loadImage(src){return new Promise(function(res,rej){var i=new Image();i.crossOrigin='anonymous';i.onload=function(){res(i);};i.onerror=function(){rej(new Error('Could not load image'));};i.src=src;});}
+function blobToDataURL(b){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(r.result);};r.onerror=rej;r.readAsDataURL(b);});}
+function dataURLToBlob(d){var p=d.split(','),m=p[0].match(/:(.*?);/)[1],b=atob(p[1]),n=b.length,u=new Uint8Array(n);while(n--)u[n]=b.charCodeAt(n);return new Blob([u],{type:m});}
+// scale to fit max px; fmt 'jpeg' flattens onto white, 'webp'/'png' keep alpha
+function resizeData(src,max,fmt,q){
+  return loadImage(src).then(function(img){
+    var w=img.naturalWidth,h=img.naturalHeight,s=Math.min(1,max/Math.max(w,h));
+    var c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*s));c.height=Math.max(1,Math.round(h*s));
+    var x=c.getContext('2d');
+    if(fmt==='jpeg'){x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);}
+    x.drawImage(img,0,0,c.width,c.height);
+    var out=c.toDataURL('image/'+fmt,q||0.86);
+    if(fmt==='webp'&&out.indexOf('data:image/webp')!==0)out=c.toDataURL('image/png');
+    return out;
+  });
+}
+function fileToData(file){return blobToDataURL(file).then(function(d){return resizeData(d,1600,'jpeg',0.9);});}
+// Fetch an image from the web. Many sites block cross-origin reads, so fall back to a public image proxy.
+function urlToData(url){
+  url=url.trim();
+  if(url.indexOf('data:image')===0)return resizeData(url,1600,'jpeg',0.9);
+  var tryFetch=function(u){return fetch(u,{mode:'cors'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.blob();}).then(function(b){if(!/^image\//.test(b.type))throw new Error('Not an image');return blobToDataURL(b);});};
+  return tryFetch(url).catch(function(){
+    return tryFetch('https://images.weserv.nl/?url='+encodeURIComponent(url.replace(/^https?:\/\//,''))+'&output=png');
+  }).then(function(d){return resizeData(d,1600,'jpeg',0.9);});
+}
+// trim transparent (or near-white) border, add padding
+function trimData(src,pad){
+  pad=pad==null?12:pad;
+  return loadImage(src).then(function(img){
+    var w=img.naturalWidth,h=img.naturalHeight;
+    var c=document.createElement('canvas');c.width=w;c.height=h;var x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0);
+    var d=x.getImageData(0,0,w,h).data,minx=w,miny=h,maxx=-1,maxy=-1;
+    for(var y=0;y<h;y++)for(var xx=0;xx<w;xx++){var i=(y*w+xx)*4;if(d[i+3]>20){if(xx<minx)minx=xx;if(xx>maxx)maxx=xx;if(y<miny)miny=y;if(y>maxy)maxy=y;}}
+    if(maxx<0)return src;
+    var tw=maxx-minx+1+pad*2,th=maxy-miny+1+pad*2;
+    var o=document.createElement('canvas');o.width=tw;o.height=th;o.getContext('2d').drawImage(c,minx,miny,maxx-minx+1,maxy-miny+1,pad,pad,maxx-minx+1,maxy-miny+1);
+    return o.toDataURL('image/png');
+  });
+}
+
+// ── Classic remover: border-colour flood with gradient following + cleanup ──
+function classicRemove(src,tol){
+  tol=tol||38;
+  return loadImage(src).then(function(img){
+    var s=Math.min(1,900/Math.max(img.naturalWidth,img.naturalHeight));
+    var W=Math.round(img.naturalWidth*s),H=Math.round(img.naturalHeight*s);
+    var c=document.createElement('canvas');c.width=W;c.height=H;var x=c.getContext('2d',{willReadFrequently:true});
+    x.drawImage(img,0,0,W,H);var id=x.getImageData(0,0,W,H),d=id.data,N=W*H;
+    // reference bg colours: cluster border pixels into up to 4 buckets
+    var ring=[];for(var i=0;i<W;i+=2){ring.push(i,(H-1)*W+i);}for(var j=0;j<H;j+=2){ring.push(j*W,j*W+W-1);}
+    var refs=[];
+    ring.forEach(function(p){var r=d[p*4],g=d[p*4+1],b=d[p*4+2];if(d[p*4+3]<30)return;
+      for(var k=0;k<refs.length;k++){var R=refs[k];if(Math.abs(R[0]/R[3]-r)+Math.abs(R[1]/R[3]-g)+Math.abs(R[2]/R[3]-b)<60){R[0]+=r;R[1]+=g;R[2]+=b;R[3]++;return;}}
+      refs.push([r,g,b,1]);});
+    refs.sort(function(a,b){return b[3]-a[3];});
+    var minCount=ring.length*0.08;
+    refs=refs.filter(function(r,i){return i===0||r[3]>minCount;}).slice(0,4).map(function(r){return[r[0]/r[3],r[1]/r[3],r[2]/r[3]];});
+    function dist(i,r){var dr=d[i]-r[0],dg=d[i+1]-r[1],db=d[i+2]-r[2];return Math.sqrt(dr*dr*0.3+dg*dg*0.59+db*db*0.11)*1.8;}
+    function nearRef(i){for(var k=0;k<refs.length;k++)if(dist(i,refs[k])<tol)return true;return false;}
+    var bg=new Uint8Array(N),q=new Int32Array(N),qh=0,qt=0;
+    for(var e=0;e<ring.length;e++){var p=ring[e];if(!bg[p]&&(d[p*4+3]<30||nearRef(p*4))){bg[p]=1;q[qt++]=p;}}
+    var step=tol*0.42;
+    while(qh<qt){
+      var p=q[qh++],px=p%W,py=(p/W)|0,pi=p*4;
+      var nb=[px>0?p-1:-1,px<W-1?p+1:-1,py>0?p-W:-1,py<H-1?p+W:-1];
+      for(var n=0;n<4;n++){var t=nb[n];if(t<0||bg[t])continue;var ti=t*4;
+        if(d[ti+3]<30){bg[t]=1;q[qt++]=t;continue;}
+        var dr=d[ti]-d[pi],dg=d[ti+1]-d[pi+1],db=d[ti+2]-d[pi+2];
+        var local=Math.sqrt(dr*dr*0.3+dg*dg*0.59+db*db*0.11)*1.8;
+        if(nearRef(ti)||(local<step&&dist(ti,refs[0])<tol*2.2)){bg[t]=1;q[qt++]=t;}}
+    }
+    // keep big foreground components only (drops specks)
+    var lab=new Int32Array(N),sizes=[0],cur=0;
+    for(var a=0;a<N;a++){if(bg[a]||lab[a])continue;cur++;var cnt=0;qh=0;qt=0;q[qt++]=a;lab[a]=cur;
+      while(qh<qt){var p2=q[qh++];cnt++;var x2=p2%W,y2=(p2/W)|0;
+        if(x2>0&&!bg[p2-1]&&!lab[p2-1]){lab[p2-1]=cur;q[qt++]=p2-1;}
+        if(x2<W-1&&!bg[p2+1]&&!lab[p2+1]){lab[p2+1]=cur;q[qt++]=p2+1;}
+        if(y2>0&&!bg[p2-W]&&!lab[p2-W]){lab[p2-W]=cur;q[qt++]=p2-W;}
+        if(y2<H-1&&!bg[p2+W]&&!lab[p2+W]){lab[p2+W]=cur;q[qt++]=p2+W;}}
+      sizes.push(cnt);}
+    var big=Math.max.apply(null,sizes);
+    if(big<N*0.003)throw new Error('Could not find an object — try the AI remover or touch-up');
+    // mask → feathered alpha
+    var mc=document.createElement('canvas');mc.width=W;mc.height=H;var mx=mc.getContext('2d');var md=mx.createImageData(W,H);
+    for(var m=0;m<N;m++){var keep=!bg[m]&&sizes[lab[m]]>=big*0.04;md.data[m*4+3]=keep?255:0;}
+    mx.putImageData(md,0,0);
+    var fc=document.createElement('canvas');fc.width=W;fc.height=H;var fx=fc.getContext('2d');fx.filter='blur(1.2px)';fx.drawImage(mc,0,0);
+    var fa=fx.getImageData(0,0,W,H).data;
+    for(var z=0;z<N;z++)d[z*4+3]=Math.min(d[z*4+3],fa[z*4+3]);
+    x.putImageData(id,0,0);
+    return trimData(c.toDataURL('image/png'));
+  });
+}
+
+// ── On-device AI remover (IMG.LY ISNet via ONNX, runs locally in the browser) ──
+var _bgLib=null;
+function aiRemove(src,onProgress){
+  var load=_bgLib?Promise.resolve(_bgLib):import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm').then(function(m){_bgLib=m;return m;});
+  return load.then(function(m){
+    var fn=m.removeBackground||(m.default&&m.default.removeBackground)||m.default;
+    return resizeData(src,1280,'jpeg',0.92).then(function(jpg){
+      return fn(dataURLToBlob(jpg),{model:L.bgModel||'isnet_fp16',output:{format:'image/png',quality:0.9},
+        progress:function(key,c,t){if(onProgress){var pct=t?Math.round(c/t*100):0;onProgress(/fetch/.test(key)?'Downloading AI model (first time only)… '+pct+'%':'Removing background…');}}});
+    });
+  }).then(blobToDataURL).then(function(d){return trimData(d);});
+}
+
+// ── AI product shot (image-to-image) ──
+function productPrompt(itemName,catId){
+  var c=cat(catId),p=shared().prompt||DEFAULT_PROMPT;
+  if(c&&c.hint)p+='\n- Category: '+c.name+' — '+c.hint+'.';
+  else if(c)p+='\n- Category: '+c.name+'.';
+  if(itemName)p+='\n- The item is: '+itemName+'.';
+  return p;
+}
+function aiProductShot(src,prompt,onProgress){
+  var prov=L.aiProvider||'gemini';
+  onProgress&&onProgress('Asking '+(prov==='openai'?'OpenAI':'Gemini')+' for a product shot… (10–40s)');
+  return resizeData(src,1024,'jpeg',0.9).then(function(jpg){
+    if(prov==='openai')return _openaiEdit(jpg,prompt);
+    return _geminiEdit(jpg,prompt);
+  }).then(function(d){return resizeData(d,1200,'png');});
+}
+function _geminiEdit(jpg,prompt){
+  if(!L.geminiKey)return Promise.reject(new Error('Add a Gemini API key in Settings → AI'));
+  var model=(L.geminiModel||'gemini-3.1-flash-image').trim();
+  return fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{
+    method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},
+    body:JSON.stringify({contents:[{role:'user',parts:[{inline_data:{mime_type:'image/jpeg',data:jpg.split(',')[1]}},{text:prompt}]}],
+      generationConfig:{responseModalities:['TEXT','IMAGE']}})
+  }).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Gemini HTTP '+r.status));return j;});})
+  .then(function(j){
+    var parts=((j.candidates||[])[0]||{}).content;parts=parts&&parts.parts||[];
+    for(var i=0;i<parts.length;i++){var p=parts[i].inlineData||parts[i].inline_data;if(p&&p.data)return 'data:'+(p.mimeType||p.mime_type||'image/png')+';base64,'+p.data;}
+    var txt=parts.map(function(p){return p.text||'';}).join(' ').trim();
+    var fr=((j.candidates||[])[0]||{}).finishReason;
+    throw new Error('Gemini returned no image'+(fr?' ('+fr+')':'')+(txt?': '+txt.slice(0,160):''));
+  });
+}
+function _openaiEdit(jpg,prompt){
+  if(!L.openaiKey)return Promise.reject(new Error('Add an OpenAI API key in Settings → AI'));
+  var fd=new FormData();
+  fd.append('model',(L.openaiModel||'gpt-image-2.5-sunburst').trim());
+  fd.append('image',new File([dataURLToBlob(jpg)],'photo.jpg',{type:'image/jpeg'}));
+  fd.append('prompt',prompt);fd.append('size','1024x1024');fd.append('n','1');
+  return fetch('https://api.openai.com/v1/images/edits',{method:'POST',headers:{Authorization:'Bearer '+L.openaiKey},body:fd})
+  .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('OpenAI HTTP '+r.status));return j;});})
+  .then(function(j){var d=(j.data||[])[0]||{};if(d.b64_json)return 'data:image/png;base64,'+d.b64_json;if(d.url)return urlToData(d.url);throw new Error('OpenAI returned no image');});
+}
+// No key? Hand the photo + prompt to any AI app via the Android share sheet.
+function shareToAIApp(src,prompt){
+  try{navigator.clipboard&&navigator.clipboard.writeText(prompt);}catch(e){}
+  resizeData(src,1400,'jpeg',0.9).then(function(jpg){
+    var file=new File([dataURLToBlob(jpg)],'item.jpg',{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      navigator.share({files:[file],text:prompt,title:'Product shot'}).catch(function(){});
+      toast('Prompt copied. Pick Gemini/ChatGPT, paste the prompt, then bring the result back with 🖼 Gallery.',6000);
+    }else{
+      downloadBlob(file,'item.jpg');
+      toast('Prompt copied + photo saved. Upload both to your AI app, then import the result with 🖼 Gallery.',6000);
+    }
+  });
+}
+
+// ── Sticker: dashed-outline cut-out (same algorithm/look as Decade Journal v308) ──
+var CUT={};
+idbAll('cuts',function(all){Object.keys(all).forEach(function(k){CUT[k]=all[k];});});
+var _stQ=[],_stBusy=0;
+function stickerQueue(k,src,cb){_stQ.push([k,src,cb]);_stRun();}
+function _stRun(){
+  while(_stBusy<2&&_stQ.length){
+    var job=_stQ.shift();
+    if(CUT[job[0]]){job[2](CUT[job[0]]);continue;}
+    _stBusy++;
+    (function(job){setTimeout(function(){makeSticker(job[1],function(r){_stBusy--;if(r){CUT[job[0]]=r;idbPut('cuts',job[0],r);}job[2](r);_stRun();});},10);})(job);
+  }
+}
+function makeSticker(src,callback){
+  var img=new Image();img.crossOrigin='anonymous';
+  img.onload=function(){
+    try{
+      var ow=Math.min(img.naturalWidth||img.width,400);
+      var oh=Math.round((img.naturalHeight||img.height)*(ow/(img.naturalWidth||img.width)));
+      var EDGE=70,W=ow+EDGE*2,H=oh+EDGE*2;
+      var c=document.createElement('canvas');c.width=W;c.height=H;
+      var ctx=c.getContext('2d',{willReadFrequently:true});
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+      ctx.drawImage(img,EDGE,EDGE,ow,oh);
+      var id=ctx.getImageData(0,0,W,H),d=id.data;
+      // 1. flood fill background (transparent or near-white)
+      var isBG=new Uint8Array(W*H),q=[],qi=0;
+      for(var x=0;x<W;x++)q.push(x,0,x,H-1);
+      for(var y=0;y<H;y++)q.push(0,y,W-1,y);
+      while(qi<q.length){
+        var sx=q[qi++],sy=q[qi++];
+        if(sx<0||sx>=W||sy<0||sy>=H)continue;
+        var si=sy*W+sx;if(isBG[si])continue;var pi=si*4;
+        if(d[pi+3]<100){isBG[si]=1;q.push(sx-1,sy,sx+1,sy,sx,sy-1,sx,sy+1);continue;}
+        if(d[pi]<240||d[pi+1]<240||d[pi+2]<240)continue;
+        isBG[si]=1;q.push(sx-1,sy,sx+1,sy,sx,sy-1,sx,sy+1);
+      }
+      // 2. object mask
+      var maskC=document.createElement('canvas');maskC.width=W;maskC.height=H;
+      var mctx=maskC.getContext('2d'),mid2=mctx.createImageData(W,H),md=mid2.data;
+      for(var i=0;i<W*H;i++){var v=isBG[i]?0:255;md[i*4]=md[i*4+1]=md[i*4+2]=v;md[i*4+3]=255;}
+      mctx.putImageData(mid2,0,0);
+      // 3. blur → outline shape
+      var dashC=document.createElement('canvas');dashC.width=W;dashC.height=H;
+      var dctx=dashC.getContext('2d');dctx.filter='blur(20px)';dctx.drawImage(maskC,0,0);dctx.filter='none';
+      var dashBmp=dctx.getImageData(0,0,W,H).data;
+      // 4. blur → outer clip
+      var clipC=document.createElement('canvas');clipC.width=W;clipC.height=H;
+      var cctx=clipC.getContext('2d');cctx.filter='blur(26px)';cctx.drawImage(maskC,0,0);cctx.filter='none';
+      var clipBmp=cctx.getImageData(0,0,W,H).data;
+      // 5. soft alpha falloff (white die-cut backing stays inside the clip)
+      for(var i=0;i<W*H;i++){
+        var v=clipBmp[i*4];
+        if(v<8)d[i*4+3]=0;else if(v<20)d[i*4+3]=Math.round(d[i*4+3]*((v-8)/12));
+      }
+      ctx.putImageData(id,0,0);
+      // 6. radial sweep for outline
+      var cx2=0,cy2=0,cnt=0;
+      for(var y=0;y<H;y++)for(var x=0;x<W;x++)if(!isBG[y*W+x]){cx2+=x;cy2+=y;cnt++;}
+      if(cnt===0){callback(null);return;}
+      cx2=Math.round(cx2/cnt);cy2=Math.round(cy2/cnt);
+      var maxR=Math.max(W,H),rawPts=[];
+      for(var deg=0;deg<360;deg++){
+        var rad=deg*Math.PI/180,dx2=Math.cos(rad),dy2=Math.sin(rad),hitX=cx2,hitY=cy2;
+        for(var r=0;r<maxR;r++){
+          var px=Math.round(cx2+dx2*r),py=Math.round(cy2+dy2*r);
+          if(px<0||px>=W||py<0||py>=H){hitX=px;hitY=py;break;}
+          if(dashBmp[(py*W+px)*4]<=15){hitX=px;hitY=py;break;}
+        }
+        rawPts.push([hitX,hitY]);
+      }
+      // 7. smooth
+      var pts=rawPts;
+      for(var pass=0;pass<3;pass++){var sm=[];for(var i=0;i<pts.length;i++){var ax=0,ay=0,nn=0;for(var j=-7;j<=7;j++){var idx=(i+j+pts.length)%pts.length;ax+=pts[idx][0];ay+=pts[idx][1];nn++;}sm.push([ax/nn,ay/nn]);}pts=sm;}
+      // 8. subsample
+      var fp=[];for(var i=0;i<pts.length;i+=5)fp.push(pts[i]);
+      // 9. draw
+      var out=document.createElement('canvas');out.width=W;out.height=H;
+      var fctx=out.getContext('2d');fctx.drawImage(c,0,0);
+      fctx.strokeStyle='#000';fctx.lineWidth=3;fctx.setLineDash([14,10]);fctx.lineCap='round';fctx.lineJoin='round';
+      fctx.beginPath();var np=fp.length;
+      fctx.moveTo((fp[np-1][0]+fp[0][0])/2,(fp[np-1][1]+fp[0][1])/2);
+      for(var i=0;i<np;i++){var cu=fp[i],nx=fp[(i+1)%np];fctx.quadraticCurveTo(cu[0],cu[1],(cu[0]+nx[0])/2,(cu[1]+nx[1])/2);}
+      fctx.closePath();fctx.stroke();
+      callback(out.toDataURL('image/png'));
+    }catch(e){console.warn('sticker',e);callback(null);}
+  };
+  img.onerror=function(){callback(null);};
+  img.src=src;
+}
+function resetStickers(){CUT={};idbAll('cuts',function(all){Object.keys(all).forEach(function(k){idbDel('cuts',k);});});render();}
+
+// ── Touch-up editor: magic-wand erase, erase/restore brush, undo ──
+var TE=null;
+function openTouchUp(src,onDone){
+  loadImage(src).then(function(img){
+    var s=Math.min(1,1000/Math.max(img.naturalWidth,img.naturalHeight));
+    var W=Math.round(img.naturalWidth*s),H=Math.round(img.naturalHeight*s);
+    var base=document.createElement('canvas');base.width=W;base.height=H;base.getContext('2d').drawImage(img,0,0,W,H);
+    TE={W:W,H:H,base:base,mode:'wand',tol:32,size:28,undo:[],onDone:onDone,drawing:false};
+    var h='<div class="mo-h"><h3>✏️ Touch-up</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">'+
+    '<div class="seg" id="te-modes" style="margin-bottom:8px">'+
+      '<button data-m="wand" class="on" onclick="teMode(\'wand\')">🪄 Tap-erase</button><button data-m="erase" onclick="teMode(\'erase\')">🧽 Erase</button><button data-m="restore" onclick="teMode(\'restore\')">♻️ Restore</button></div>'+
+    '<div class="te-wrap"><canvas id="te-c" width="'+W+'" height="'+H+'"></canvas></div>'+
+    '<div class="row" style="margin-top:8px"><span class="hint" style="width:76px" id="te-lbl">Tolerance</span><input type="range" id="te-sl" min="4" max="90" value="32" style="flex:1" oninput="teSlide(this.value)"><button class="btn btn-s btn-sm" onclick="teUndo()">↶ Undo</button></div>'+
+    '<div class="hint" style="margin-top:4px">Tap-erase removes the touching area of similar colour. Erase/Restore paint with your finger. Restore brings back pixels from when you opened this editor.</div>'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3)">Cancel</button><button class="btn btn-p" onclick="teDone()">Use this</button></div>';
+    openModal(h,3);
+    var cv=$('te-c');TE.cv=cv;TE.ctx=cv.getContext('2d',{willReadFrequently:true});TE.ctx.drawImage(base,0,0);
+    var pos=function(e){var r=cv.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];};
+    cv.addEventListener('pointerdown',function(e){e.preventDefault();cv.setPointerCapture(e.pointerId);var p=pos(e);tePush();
+      if(TE.mode==='wand'){teWand(p[0]|0,p[1]|0);}else{TE.drawing=true;TE.last=p;teBrush(p,p);}});
+    cv.addEventListener('pointermove',function(e){if(!TE||!TE.drawing)return;var p=pos(e);teBrush(TE.last,p);TE.last=p;});
+    var up=function(){if(TE)TE.drawing=false;};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+  });
+}
+function teMode(m){TE.mode=m;document.querySelectorAll('#te-modes button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-m')===m);});
+  var sl=$('te-sl'),lb=$('te-lbl');if(m==='wand'){lb.textContent='Tolerance';sl.min=4;sl.max=90;sl.value=TE.tol;}else{lb.textContent='Brush';sl.min=6;sl.max=90;sl.value=TE.size;}}
+function teSlide(v){if(TE.mode==='wand')TE.tol=+v;else TE.size=+v;}
+function tePush(){TE.undo.push(TE.ctx.getImageData(0,0,TE.W,TE.H));if(TE.undo.length>15)TE.undo.shift();}
+function teUndo(){var u=TE.undo.pop();if(u)TE.ctx.putImageData(u,0,0);}
+function teBrush(a,b){
+  var x=TE.ctx;x.save();x.lineCap='round';x.lineJoin='round';x.lineWidth=TE.size;
+  if(TE.mode==='erase'){x.globalCompositeOperation='destination-out';x.strokeStyle='#000';x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke();}
+  else{// restore: clip a stroke path, paint base through it
+    x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);
+    var tmp=document.createElement('canvas');tmp.width=TE.W;tmp.height=TE.H;var t=tmp.getContext('2d');
+    t.lineCap='round';t.lineWidth=TE.size;t.strokeStyle='#000';t.beginPath();t.moveTo(a[0],a[1]);t.lineTo(b[0],b[1]);t.stroke();
+    t.globalCompositeOperation='source-in';t.drawImage(TE.base,0,0);
+    x.globalCompositeOperation='source-over';x.drawImage(tmp,0,0);}
+  x.restore();
+}
+function teWand(sx,sy){
+  var W=TE.W,H=TE.H,id=TE.ctx.getImageData(0,0,W,H),d=id.data,si=(sy*W+sx)*4;
+  if(d[si+3]<10)return;
+  var r0=d[si],g0=d[si+1],b0=d[si+2],tol=TE.tol,seen=new Uint8Array(W*H),q=[sy*W+sx],qi=0;seen[sy*W+sx]=1;
+  while(qi<q.length){var p=q[qi++],i=p*4;
+    var dr=d[i]-r0,dg=d[i+1]-g0,db=d[i+2]-b0;
+    if(d[i+3]<10||Math.sqrt(dr*dr*0.3+dg*dg*0.59+db*db*0.11)*1.8>tol)continue;
+    d[i+3]=0;var x=p%W,y=(p/W)|0;
+    if(x>0&&!seen[p-1]){seen[p-1]=1;q.push(p-1);}if(x<W-1&&!seen[p+1]){seen[p+1]=1;q.push(p+1);}
+    if(y>0&&!seen[p-W]){seen[p-W]=1;q.push(p-W);}if(y<H-1&&!seen[p+W]){seen[p+W]=1;q.push(p+W);}}
+  TE.ctx.putImageData(id,0,0);
+}
+function teDone(){var d=TE.cv.toDataURL('image/png'),cb=TE.onDone;TE=null;closeModal(3);trimData(d).then(cb);}
+
+// ── Photo intake (camera / gallery / URL / paste / Android share target) ──
+function pickPhoto(kind,cb){
+  if(kind==='cam'||kind==='gal'){
+    var inp=$(kind==='cam'?'file-cam':'file-gal');inp.value='';
+    inp.onchange=function(){var f=inp.files[0];if(f)fileToData(f).then(cb).catch(function(e){alert(e.message);});};
+    inp.click();
+  }else if(kind==='url'){
+    var u=prompt('Paste an image URL (long-press an image → Copy image address):');
+    if(u)urlToData(u).then(cb).catch(function(e){alert('Could not load that image ('+e.message+').\nTip: long-press the image → Share → Spotted, or save it and use Gallery.');});
+  }else if(kind==='paste'){
+    if(!navigator.clipboard||!navigator.clipboard.read){return alert('Clipboard images not supported here — use Gallery or URL.');}
+    navigator.clipboard.read().then(function(items){
+      for(var i=0;i<items.length;i++){var t=items[i].types.find(function(x){return x.indexOf('image/')===0;});
+        if(t)return items[i].getType(t).then(blobToDataURL).then(function(d){return resizeData(d,1600,'jpeg',0.9);}).then(cb);}
+      return navigator.clipboard.readText().then(function(txt){if(/^https?:\/\//.test(txt||''))return urlToData(txt).then(cb);alert('No image on the clipboard.');});
+    }).catch(function(e){alert('Clipboard read blocked: '+e.message);});
+  }
+}
+// Images shared into the app via Android share sheet (manifest share_target → sw.js stashes in Cache)
+function checkSharedImage(){
+  if(location.search.indexOf('shared=1')<0||!('caches' in window))return;
+  history.replaceState(null,'',location.pathname);
+  caches.open('ib-share').then(function(c){
+    return c.match('shared-image').then(function(r){
+      if(r)return r.blob().then(function(b){c.delete('shared-image');return blobToDataURL(b);}).then(function(d){return resizeData(d,1600,'jpeg',0.9);}).then(function(d){openItemModal(null,{photo:d});});
+      return c.match('shared-url').then(function(r2){
+        if(!r2)return;
+        return r2.text().then(function(t){c.delete('shared-url');var m=String(t).match(/https?:\/\/\S+/);if(!m)return;
+          toast('Loading shared image…');
+          urlToData(m[0]).then(function(d){openItemModal(null,{photo:d});}).catch(function(){openItemModal(null,{});toast('That link isn\'t a direct image — long-press the picture itself → Share',5000);});});
+      });
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  UI — modal stack, shell, tabs
+// ════════════════════════════════════════════════════════════════
+function openModal(html,level){
+  level=level||1;var mr=$('mr');var ex=$('mo-l'+level);if(ex)ex.remove();
+  for(var l=level+1;l<=4;l++){var e2=$('mo-l'+l);if(e2)e2.remove();}
+  var d=document.createElement('div');d.id='mo-l'+level;d.className='mo-ov l'+level;
+  d.innerHTML='<div class="mo" onclick="event.stopPropagation()">'+html+'</div>';
+  d.addEventListener('click',function(e){if(e.target===d)closeModal(level);});
+  mr.appendChild(d);hydrate(d);return d;
+}
+function closeModal(level){
+  for(var l=level||1;l<=4;l++){var e=$('mo-l'+l);if(e)e.remove();}
+  if((level||1)<=1){IM=null;CM=null;}
+  if(_renderPending)render();
+}
+function modalOpen(l){return !!$('mo-l'+(l||1));}
+var _renderPending=false;
+function scheduleRender(){debounce('render',function(){render();},120);}
+
+function render(){
+  _renderPending=false;
+  var me=person(L.me)||peopleList()[0]||{name:'?',color:'#999'};
+  var sc=document.querySelector('.content');var y=window.scrollY;
+  var tabs=[['items','🏷️','Items'],['cal','📅','Calendar'],['bingo','🎱','Bingo']];
+  var h='<div class="topbar"><div class="brand">Spotted<small>'+APP_VERSION+'</small></div><div class="spacer"></div>'+
+    '<button class="me-pill" onclick="cycleMe()" title="Who is spotting on this phone">'+pdot(me.id)+esc(me.name)+'</button>'+
+    '<span class="sync-dot" id="sync-dot" onclick="openSettings(\'sync\')"></span>'+
+    '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
+  h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():viewItems())+'</div>';
+  h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
+  h+='<button class="fab" onclick="quickSpot()">📷 Spot</button>';
+  $('app').innerHTML=h;
+  hydrate($('app'));syncBadge();
+  window.scrollTo(0,y);
+}
+function setTab(t){L.tab=t;svL();window.scrollTo(0,0);render();}
+function cycleMe(){var ps=peopleList();var i=ps.findIndex(function(p){return p.id===L.me;});L.me=ps[(i+1)%ps.length].id;svL();render();toast('Spotting as '+person(L.me).name);}
+
+// ════════════ ITEMS TAB ════════════
+function viewItems(){
+  var idx=sightIndex().by;
+  var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search items…" value="'+esc(L.search)+'" oninput="L.search=this.value;svL();debounce(\'srch\',renderItemsGrid,200)" style="flex:1">'+
+    '<select class="m-in" style="width:auto;padding:9px 6px;font-size:13px" onchange="L.sort=this.value;svL();render()">'+
+    [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
+    '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button></div>';
+  h+='<div class="chips"><button class="chip'+(L.catFilter==='all'?' on':'')+'" onclick="L.catFilter=\'all\';svL();render()">All</button>'+
+    catList().map(function(c){return'<button class="chip'+(L.catFilter===c.id?' on':'')+'" onclick="L.catFilter=\''+c.id+'\';svL();render()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+
+    '<button class="chip" onclick="openCatManager()">＋ / ⚙</button></div>';
+  h+='<div class="chips"><button class="chip'+(L.personFilter==='all'?' on':'')+'" onclick="L.personFilter=\'all\';svL();render()">Everyone</button>'+
+    peopleList().map(function(p){return'<button class="chip'+(L.personFilter===p.id?' on':'')+'" onclick="L.personFilter=\''+p.id+'\';svL();render()">'+pdot(p.id,1)+esc(p.name)+'</button>';}).join('')+'</div>';
+  h+='<div id="items-grid">'+itemsGridHTML()+'</div>';
+  return h;
+}
+function filteredItems(){
+  var idx=sightIndex().by,q=(L.search||'').toLowerCase().trim();
+  var list=vals(S.items).filter(function(it){
+    if(L.catFilter!=='all'&&it.cat!==L.catFilter)return false;
+    if(q&&(it.name||'').toLowerCase().indexOf(q)<0&&(it.notes||'').toLowerCase().indexOf(q)<0)return false;
+    if(L.personFilter!=='all'&&!(idx[it.id]||[]).some(function(s){return(s.by||[]).indexOf(L.personFilter)>=0;}))return false;
+    if(L.sort==='never'&&(idx[it.id]||[]).length)return false;
+    return true;
+  });
+  var last=function(it){var s=idx[it.id];return s&&s.length?s[0].date:'';};
+  if(L.sort==='name')list.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+  else if(L.sort==='most')list.sort(function(a,b){return(idx[b.id]||[]).length-(idx[a.id]||[]).length;});
+  else list.sort(function(a,b){return(last(b)||'').localeCompare(last(a)||'')||(b.created||0)-(a.created||0);});
+  return list;
+}
+function itemsGridHTML(){
+  var idx=sightIndex().by,list=filteredItems();
+  if(!list.length){
+    return Object.keys(S.items).length?'<div class="empty"><div class="big">🔍</div>Nothing matches these filters.</div>':
+      '<div class="empty"><div class="big">📷</div><b>No items yet.</b><br>Tap <b>📷 Spot</b> to snap something you saw.<br>It gets a clean cut-out, a category, and a sighting log.</div>';
+  }
+  return '<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(function(it){
+    var ss=idx[it.id]||[],c=cat(it.cat);
+    var who={};ss.forEach(function(s){(s.by||[]).forEach(function(p){who[p]=1;});});
+    return'<div class="inv-card" onclick="openItemModal(\''+it.id+'\')">'+
+      '<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>'+
+      '<div class="inv-imgw">'+(it.img?imgHTML(it.img,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+(c?c.icon:'📦')+'</div>')+'</div>'+
+      '<div class="inv-info"><div class="inv-name">'+esc(it.name||'Untitled')+'</div><div class="inv-meta">'+(c?c.icon+' ':'')+(ss.length?fmtDate(ss[0].date):'')+
+      '<span style="margin-left:auto;display:flex;gap:1px">'+Object.keys(who).map(function(p){return pdot(p,1);}).join('')+'</span></div></div></div>';
+  }).join('')+'</div>';
+}
+function renderItemsGrid(){var g=$('items-grid');if(g){g.innerHTML=itemsGridHTML();hydrate(g);}}
+
+// ════════════ ITEM MODAL ════════════
+var IM=null;
+// opts: {photo, cat, name, ctx:{card,cell}}
+function openItemModal(id,opts){
+  opts=opts||{};
+  if(id&&S.items[id]){
+    var it=S.items[id];
+    IM={id:id,isNew:false,f:clone(it),vers:[],cur:0,ctx:opts.ctx||null};
+    if(it.img)IM.vers.push({k:it.img,label:'Current'});
+    if(it.orig&&it.orig!==it.img)IM.vers.push({k:it.orig,label:'Original'});
+  }else{
+    var defCat=opts.cat||(L.catFilter!=='all'?L.catFilter:'');
+    IM={id:null,isNew:true,f:{id:'it_'+gid(),name:opts.name||'',cat:defCat,notes:''},vers:[],cur:0,ctx:opts.ctx||null,
+      first:{date:tod(),by:[L.me],place:L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:'',note:''},logFirst:true};
+  }
+  rItem();
+  if(opts.photo)studioAdd(opts.photo,'Photo',true);
+}
+function _imCap(){
+  if(!IM)return;var e;
+  if((e=$('im-name')))IM.f.name=e.value;
+  if((e=$('im-notes')))IM.f.notes=e.value;
+  if((e=$('im-fnote'))&&IM.first)IM.first.note=e.value;
+  if((e=$('im-fdate'))&&IM.first)IM.first.date=e.value||tod();
+}
+function rItem(){
+  if(!IM)return;_imCap();
+  var f=IM.f,isNew=IM.isNew;
+  var h='<div class="mo-h"><h3>'+(isNew?'📷 New item':esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+=studioHTML();
+  h+='<div class="m-lbl">Name</div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
+  h+='<div class="m-lbl">Category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){
+    return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_imCap();IM.f.cat=\''+c.id+'\';rItem()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+
+    '<button class="chip" onclick="_imCap();quickNewCat(function(id){IM.f.cat=id;rItem();})">＋ New</button></div>';
+  if(isNew){
+    var fs=IM.first;
+    h+='<div class="sec"><label class="toggle" style="padding:0"><input type="checkbox" '+(IM.logFirst?'checked':'')+' onchange="_imCap();IM.logFirst=this.checked;rItem()"><b>Log a sighting now</b></label>';
+    if(IM.logFirst){
+      h+='<div class="row" style="margin-top:8px"><input type="date" class="m-in" id="im-fdate" value="'+esc(fs.date)+'" style="width:auto;flex:1"></div>';
+      h+='<div class="m-lbl">Spotted by</div>'+whoChips(fs.by,'IM.first.by','rItem');
+      h+='<div class="m-lbl">Where</div>'+placeChip(fs.place,'_imPickFirstPlace()','_imCap();IM.first.place=\'\';rItem()');
+      h+='<input class="m-in" id="im-fnote" placeholder="Note (optional)" value="'+esc(fs.note)+'" style="margin-top:8px">';
+    }
+    h+='</div>';
+  }else{
+    var ss=itemSightings(f.id);
+    h+='<div class="m-lbl">Sightings <span class="r">'+ss.length+'×</span></div>';
+    h+='<div class="row" style="gap:6px"><button class="btn btn-p" style="flex:1" onclick="quickSight(\''+f.id+'\')">✅ Spotted now</button><button class="btn btn-s" onclick="openSighting(null,{item:\''+f.id+'\'})">＋ With details</button></div>';
+    h+='<div style="margin-top:6px">'+(ss.length?ss.map(sightRow).join(''):'<div class="hint" style="padding:8px 0">Not spotted yet.</div>')+'</div>';
+  }
+  h+='<div class="m-lbl">Notes</div><textarea class="m-in" id="im-notes" placeholder="Details, size, colorway, story…">'+esc(f.notes||'')+'</textarea>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveItem()">'+(isNew?'Save item':'Save')+'</button></div>';
+  var keepScroll=$('mo-l1')&&$('mo-l1').querySelector('.mo-b');var st=keepScroll?keepScroll.scrollTop:0;
+  openModal(h,1);
+  var nb=$('mo-l1').querySelector('.mo-b');if(nb)nb.scrollTop=st;
+  studioPaint();
+}
+function sightRow(s){
+  return'<div class="li" onclick="openSighting(\''+s.id+'\')"><div class="grow"><div class="t">'+fmtDate(s.date)+(s.place?' · <span style="font-weight:500">📍 '+esc(placeName(s.place))+'</span>':'')+'</div>'+
+    (s.note?'<div class="s">'+esc(s.note)+'</div>':'')+(s.card&&S.cards[s.card]?'<div class="s">🎱 '+esc(S.cards[s.card].name)+'</div>':'')+'</div>'+
+    '<div class="row" style="gap:2px">'+(s.by||[]).map(function(p){return pdot(p);}).join('')+'</div>'+(s.photo?imgHTML(s.photo,'thumb'):'')+'</div>';
+}
+function whoChips(sel,path,rer){
+  return '<div class="chips" style="flex-wrap:wrap">'+peopleList().map(function(p){var on=(sel||[]).indexOf(p.id)>=0;
+    return'<button class="chip'+(on?' on':'')+'" onclick="toggleWho('+path+',\''+p.id+'\');'+rer+'()">'+pdot(p.id,1)+esc(p.name)+'</button>';}).join('')+
+    '<button class="chip" onclick="openPeopleManager()">＋</button></div>';
+}
+function toggleWho(arr,pid){if(typeof _imCap==='function')_imCap();if(typeof _smCap==='function')_smCap();var i=arr.indexOf(pid);if(i>=0)arr.splice(i,1);else arr.push(pid);}
+function placeChip(pid,pick,clear){
+  var p=S.places[pid];
+  return '<div class="row"><button class="btn btn-s" style="flex:1;justify-content:flex-start;text-align:left" onclick="'+pick+'">📍 '+(p?'<b>'+esc(p.name)+'</b>'+(p.address?'<span class="hint" style="margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.address)+'</span>':''):'<span style="color:var(--inkFaint)">Add a place…</span>')+'</button>'+(p?'<button class="btn btn-g" onclick="'+clear+'">✕</button>':'')+'</div>';
+}
+function _imPickFirstPlace(){_imCap();openPlacePicker(function(id){IM.first.place=id;rItem();});}
+
+// ── studio (photo + clean-up) inside item modal ──
+function studioHTML(){
+  var v=IM.vers[IM.cur];
+  var h='<div class="studio">';
+  if(v){
+    h+='<div class="studio-prev'+(IM.prevWhite?' white':'')+'" id="st-prev"><img id="st-img" alt="">'+(IM.busy?'<div class="studio-busy"><div class="spin"></div><div id="st-busy">'+esc(IM.busy)+'</div></div>':'')+'</div>';
+    if(IM.vers.length>1)h+='<div class="ver-row">'+IM.vers.map(function(x,i){return'<button class="ver'+(i===IM.cur?' on':'')+'" onclick="IM.cur='+i+';rItem()"><img data-vi="'+i+'"><small>'+esc(x.label)+'</small></button>';}).join('')+'</div>';
+    h+='<div class="tools">'+
+      '<button class="btn btn-p" onclick="studioRun(\'ai\')">✨ Auto remove BG</button>'+
+      '<button class="btn btn-p" onclick="studioRun(\'shot\')">🪄 AI product shot</button>'+
+      '<button class="btn btn-s" onclick="studioRun(\'quick\')">⚡ Quick remove</button>'+
+      '<button class="btn btn-s" onclick="studioTouch()">✏️ Touch-up</button>'+
+      '<button class="btn btn-s" onclick="studioShare()">📤 Send to AI app</button>'+
+      '<button class="btn btn-s" onclick="studioSticker()">🏷️ Sticker preview</button></div>';
+    h+='<div class="row" style="margin-top:6px;justify-content:space-between"><span class="hint">Replace:</span>'+
+      '<button class="btn btn-g btn-sm" onclick="studioPick(\'cam\')">📷</button><button class="btn btn-g btn-sm" onclick="studioPick(\'gal\')">🖼</button><button class="btn btn-g btn-sm" onclick="studioPick(\'url\')">🔗</button><button class="btn btn-g btn-sm" onclick="studioPick(\'paste\')">📋</button>'+
+      '<button class="btn btn-g btn-sm" onclick="IM.prevWhite=!IM.prevWhite;rItem()">'+(IM.prevWhite?'▦ grid':'⬜ white')+'</button>'+
+      (IM.vers.length>1?'<button class="btn btn-g btn-sm" style="color:var(--bad)" onclick="IM.vers.splice(IM.cur,1);IM.cur=Math.max(0,IM.cur-1);rItem()">🗑 version</button>':'')+'</div>';
+  }else{
+    h+='<div class="m-lbl" style="margin-top:2px">Photo</div><div class="src-row">'+
+      '<button class="btn btn-s" onclick="studioPick(\'cam\')"><span>📷</span>Camera</button><button class="btn btn-s" onclick="studioPick(\'gal\')"><span>🖼</span>Gallery</button>'+
+      '<button class="btn btn-s" onclick="studioPick(\'url\')"><span>🔗</span>Web URL</button><button class="btn btn-s" onclick="studioPick(\'paste\')"><span>📋</span>Paste</button></div>'+
+      '<div class="hint" style="margin-top:6px">After adding a photo you can auto-remove the background on the phone, or have AI turn it into a white-background product shot.</div>';
+  }
+  return h+'</div>';
+}
+function studioPaint(){
+  if(!IM)return;var v=IM.vers[IM.cur],el=$('st-img');
+  var src=function(x,cb){if(x.d)return cb(x.d);imgGet(x.k,cb);};
+  if(v&&el){if(IM.stickerPrev&&IM.stickerPrev.i===IM.cur&&IM.stickerPrev.d)el.src=IM.stickerPrev.d;else src(v,function(d){if(d)el.src=d;});}
+  document.querySelectorAll('img[data-vi]').forEach(function(im){var x=IM.vers[+im.getAttribute('data-vi')];if(x)src(x,function(d){if(d)im.src=d;});});
+}
+function studioCur(cb){var v=IM&&IM.vers[IM.cur];if(!v)return cb(null);if(v.d)return cb(v.d);imgGet(v.k,cb);}
+function studioOrig(cb){var o=IM.vers.find(function(x){return x.label==='Photo'||x.label==='Original';})||IM.vers[IM.cur];if(o.d)return cb(o.d);imgGet(o.k,cb);}
+function studioAdd(d,label,isSource){
+  if(!IM)return;
+  IM.vers.push({d:d,label:label,src:!!isSource});IM.cur=IM.vers.length-1;IM.stickerPrev=null;rItem();
+  if(isSource&&L.autoProcess&&L.autoProcess!=='none')setTimeout(function(){studioRun(L.autoProcess);},50);
+}
+function studioPick(kind){_imCap();pickPhoto(kind,function(d){studioAdd(d,'Photo',true);});}
+function studioBusy(msg){if(!IM)return;IM.busy=msg;var b=$('st-busy');if(b&&msg){b.textContent=msg;return;}rItem();}
+function studioRun(kind){
+  _imCap();
+  studioCur(function(src){
+    if(!src)return;
+    var p;
+    if(kind==='quick'){studioBusy('Removing background…');p=classicRemove(src).then(function(d){return[d,'Quick cut'];});}
+    else if(kind==='ai'){studioBusy('Loading on-device AI…');p=aiRemove(src,studioBusy).then(function(d){return[d,'AI cut'];})
+      .catch(function(e){console.warn(e);toast('On-device AI unavailable ('+(e.message||e)+'). Used quick remover.',5000);return classicRemove(src).then(function(d){return[d,'Quick cut'];});});}
+    else if(kind==='shot'){
+      var hasKey=(L.aiProvider==='openai'?L.openaiKey:L.geminiKey);
+      if(!hasKey){if(confirm('No AI key yet.\n\nOK = open Settings → AI to add a Gemini or OpenAI key\nCancel = send the photo + prompt to an AI app instead')){openSettings('ai');}else studioShare();return;}
+      // product shots work best from the untouched photo
+      p=new Promise(function(res){studioOrig(res);}).then(function(o){studioBusy('Starting…');return aiProductShot(o,productPrompt($('im-name')?$('im-name').value:IM.f.name,IM.f.cat),studioBusy);}).then(function(d){return[d,'AI shot'];});
+    }
+    p.then(function(r){IM.busy=null;studioAdd(r[0],r[1]);}).catch(function(e){IM.busy=null;rItem();alert('⚠️ '+(e.message||e));});
+  });
+}
+function studioTouch(){_imCap();studioCur(function(src){if(src)openTouchUp(src,function(d){studioAdd(d,'Touch-up');});});}
+function studioShare(){_imCap();studioOrig(function(src){if(src)shareToAIApp(src,productPrompt(IM.f.name,IM.f.cat));});}
+function studioSticker(){
+  if(IM.stickerPrev&&IM.stickerPrev.i===IM.cur){IM.stickerPrev=null;return rItem();}
+  studioCur(function(src){makeSticker(src,function(s){if(!s)return toast('Sticker failed');IM.stickerPrev={i:IM.cur,d:s};IM.prevWhite=false;rItem();});});
+}
+function saveItem(){
+  _imCap();
+  var f=IM.f;
+  if(!f.name.trim()){var n=$('im-name');if(n){n.focus();n.style.borderColor='var(--bad)';}return toast('Give it a name');}
+  f.name=f.name.trim();
+  var v=IM.vers[IM.cur];
+  var oldImg=IM.isNew?null:S.items[IM.id].img,oldOrig=IM.isNew?null:S.items[IM.id].orig;
+  var finish=function(){
+    if(IM.isNew)f.created=now();
+    put('items',f);
+    // drop images no longer referenced
+    [oldImg,oldOrig].forEach(function(k){if(k&&k!==f.img&&k!==f.orig)fbDeleteImage(k);});
+    var ctx=IM.ctx,first=IM.isNew&&IM.logFirst?IM.first:null;
+    closeModal(1);
+    if(first){var s=addSighting({item:f.id,date:first.date,by:first.by.slice(),place:first.place,note:first.note,card:ctx&&ctx.card});if(first.place){L.lastPlace=first.place;svL();}if(ctx)fulfilCell(ctx.card,ctx.cell,f.id,s);}
+    else if(ctx){var s2=addSighting({item:f.id,date:tod(),by:[L.me],place:'',card:ctx.card});fulfilCell(ctx.card,ctx.cell,f.id,s2);}
+    render();toast(IM&&IM.isNew?'Saved':'Saved ✓');
+  };
+  if(!v){f.img=f.img||'';return finish();}
+  var srcV=IM.vers.find(function(x){return x.src;})||null;
+  var tasks=[];
+  if(v.k)f.img=v.k;else tasks.push(resizeData(v.d,800,'webp',0.88).then(function(d){f.img=imgSave(d);}));
+  // keep the untouched photo as "orig" (small) so you can redo the clean-up later
+  if(srcV&&srcV!==v&&srcV.d)tasks.push(resizeData(srcV.d,1000,'jpeg',0.82).then(function(d){f.orig=imgSave(d);}));
+  else if(!srcV&&IM.vers.some(function(x){return x.k&&x.k===oldOrig;}))f.orig=oldOrig;
+  else if(srcV===v)f.orig='';
+  Promise.all(tasks).then(finish).catch(function(e){alert('Save failed: '+e.message);});
+}
+function deleteItem(){
+  var it=S.items[IM.id];if(!it)return;var ss=itemSightings(it.id);
+  if(!confirm('Delete "'+it.name+'" and its '+ss.length+' sighting(s)?'))return;
+  ss.forEach(function(s){if(s.photo)fbDeleteImage(s.photo);del('sightings',s.id);});
+  vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.ref===it.id&&cell.t==='item'){cell.t='empty';cell.ref='';ch=true;}if(cell.done&&cell.done.item===it.id){cell.done=null;ch=true;}});if(ch)put('cards',c);});
+  fbDeleteImage(it.img);fbDeleteImage(it.orig);del('items',it.id);closeModal(1);render();
+}
+function quickSpot(){openItemModal(null,{});setTimeout(function(){studioPick('cam');},60);}
+
+// ════════════ SIGHTINGS ════════════
+function addSighting(o){var s={id:'s_'+gid(),item:o.item,date:o.date||tod(),by:o.by&&o.by.length?o.by:[L.me],place:o.place||'',note:o.note||'',card:o.card||'',photo:o.photo||'',created:now()};put('sightings',s);return s;}
+function quickSight(itemId,ctx){
+  var s=addSighting({item:itemId,place:L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:'',card:ctx&&ctx.card});
+  if(ctx)fulfilCell(ctx.card,ctx.cell,itemId,s);
+  toast('✅ Spotted by '+person(L.me).name+' · tap the entry to add details');
+  if(IM&&IM.id===itemId)rItem();render();return s;
+}
+var SM=null;
+function openSighting(id,opts){
+  opts=opts||{};
+  if(id&&S.sightings[id])SM={f:clone(S.sightings[id]),isNew:false};
+  else SM={f:{id:'s_'+gid(),item:opts.item,date:opts.date||tod(),by:[L.me],place:L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:'',note:'',photo:'',card:opts.ctx?opts.ctx.card:''},isNew:true,ctx:opts.ctx};
+  rSight();
+}
+function _smCap(){if(!SM)return;var e;if((e=$('sm-date')))SM.f.date=e.value||tod();if((e=$('sm-note')))SM.f.note=e.value;}
+function rSight(){
+  _smCap();var f=SM.f,it=S.items[f.item];
+  var h='<div class="mo-h">'+(it&&it.img?imgHTML(it.img,'thumb'):'')+'<h3>'+(SM.isNew?'Log sighting':'Sighting')+(it?' · '+esc(it.name):'')+'</h3>'+(SM.isNew?'':'<button class="icon-btn" onclick="delSighting()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<div class="m-lbl">Date</div><input type="date" class="m-in" id="sm-date" value="'+esc(f.date)+'">';
+  h+='<div class="m-lbl">Spotted by</div>'+whoChips(f.by,'SM.f.by','rSight');
+  h+='<div class="m-lbl">Where</div>'+placeChip(f.place,'_smCap();openPlacePicker(function(id){SM.f.place=id;rSight();})','_smCap();SM.f.place=\'\';rSight()');
+  h+='<div class="m-lbl">Note</div><input class="m-in" id="sm-note" value="'+esc(f.note)+'" placeholder="Optional">';
+  h+='<div class="m-lbl">Photo of this sighting <span class="r">optional</span></div><div class="row">'+(f.photo?imgHTML(f.photo,'thumb','style="width:64px;height:64px"'):'')+(f.photoD?'<img class="thumb" style="width:64px;height:64px" src="'+f.photoD+'">':'')+
+    '<button class="btn btn-s btn-sm" onclick="_smCap();pickPhoto(\'cam\',function(d){SM.f.photoD=d;rSight();})">📷</button><button class="btn btn-s btn-sm" onclick="_smCap();pickPhoto(\'gal\',function(d){SM.f.photoD=d;rSight();})">🖼</button>'+
+    ((f.photo||f.photoD)?'<button class="btn btn-g btn-sm" onclick="SM.f.photoD=null;SM.f.photo=\'\';rSight()">✕</button>':'')+'</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(2)">Cancel</button><button class="btn btn-p" onclick="saveSighting()">Save</button></div>';
+  openModal(h,2);
+}
+function saveSighting(){
+  _smCap();var f=SM.f,ctx=SM.ctx,wasNew=SM.isNew,old=wasNew?null:S.sightings[f.id];
+  if(!f.by.length)f.by=[L.me];
+  var go=function(){
+    var pd=f.photoD;delete f.photoD;
+    if(old&&old.photo&&old.photo!==f.photo)fbDeleteImage(old.photo);
+    if(wasNew)f.created=now();put('sightings',f);
+    if(f.place){L.lastPlace=f.place;L.lastPlaceDay=tod();svL();}
+    if(ctx)fulfilCell(ctx.card,ctx.cell,f.item,f);
+    closeModal(2);if(IM)rItem();if($('mo-l1')&&$('mo-l1').getAttribute('data-day'))openDay($('mo-l1').getAttribute('data-day'));render();
+  };
+  if(f.photoD)resizeData(f.photoD,900,'jpeg',0.82).then(function(d){f.photo=imgSave(d);go();});else go();
+}
+function delSighting(){if(!confirm('Delete this sighting?'))return;var s=S.sightings[SM.f.id];if(s&&s.photo)fbDeleteImage(s.photo);
+  vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.done&&cell.done.sid===SM.f.id){cell.done=null;ch=true;}});if(ch)put('cards',c);});
+  del('sightings',SM.f.id);closeModal(2);if(IM)rItem();render();}
+
+// ════════════ PLACES ════════════
+var PP=null;
+function openPlacePicker(cb){
+  PP={cb:cb,results:null,q:''};rPlaces();
+  setTimeout(function(){var q=$('pp-q');if(q)q.focus();},80);
+}
+function rPlaces(){
+  var used={};vals(S.sightings).forEach(function(s){if(s.place)used[s.place]=(used[s.place]||0)+1;});
+  var recent=vals(S.places).sort(function(a,b){return(used[b.id]||0)-(used[a.id]||0)||(b.u||0)-(a.u||0);});
+  var h='<div class="mo-h"><h3>📍 Where?</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
+  h+='<div class="row"><input class="m-in" id="pp-q" placeholder="Store, mall, park, city…" value="'+esc(PP.q)+'" onkeydown="if(event.key===\'Enter\')ppSearch()"><button class="btn btn-p" onclick="ppSearch()">🔍</button></div>';
+  h+='<div class="row" style="margin-top:6px"><button class="btn btn-s" style="flex:1" onclick="ppNear()">📍 Near me</button><button class="btn btn-s" style="flex:1" onclick="ppCustom()">✍️ Use typed name</button></div>';
+  if(PP.results){h+='<div class="m-lbl">Results</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address)+'</div></div></div>';}).join(''):'<div class="hint">No results.</div>';}
+  if(recent.length){h+='<div class="m-lbl">Your places</div>'+recent.slice(0,40).map(function(p){return'<div class="li"><div class="grow" onclick="ppChoose(\''+p.id+'\')"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+(used[p.id]?' · '+used[p.id]+'×':'')+'</div></div><button class="btn btn-g btn-sm" onclick="ppDelete(\''+p.id+'\')">✕</button></div>';}).join('');}
+  h+='</div>';
+  openModal(h,3);
+}
+function ppChoose(id){var cb=PP.cb;closeModal(3);PP=null;cb(id);}
+function ppDelete(id){if(vals(S.sightings).some(function(s){return s.place===id;})&&!confirm('This place is used by sightings. Delete anyway?'))return;PP.q=($('pp-q')||{}).value||'';del('places',id);rPlaces();}
+function ppCustom(){var q=(($('pp-q')||{}).value||'').trim();if(!q){q=prompt('Place name:');if(!q)return;}
+  var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===q.toLowerCase();});if(ex)return ppChoose(ex.id);
+  var p=put('places',{id:'pl_'+gid(),name:q,address:'',lat:null,lng:null});ppChoose(p.id);}
+function _nomName(r){var a=r.address||{};var nm=r.name||a.shop||a.amenity||a.building||a.tourism||a.leisure||a.road||String(r.display_name||'').split(',')[0];
+  var addr=[a.house_number&&a.road?a.house_number+' '+a.road:a.road,a.city||a.town||a.village||a.suburb,a.state].filter(Boolean).join(', ');return{name:nm,address:addr||r.display_name,lat:+r.lat,lng:+r.lon};}
+function ppSearch(near){
+  var q=(($('pp-q')||{}).value||'').trim();PP.q=q;if(!q)return;
+  var u='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q='+encodeURIComponent(q);
+  if(PP.loc)u+='&viewbox='+(PP.loc.lng-0.15)+','+(PP.loc.lat+0.15)+','+(PP.loc.lng+0.15)+','+(PP.loc.lat-0.15);
+  fetch(u).then(function(r){return r.json();}).then(function(j){PP.results=j.map(_nomName);rPlaces();}).catch(function(e){alert('Search failed: '+e.message);});
+}
+function ppNear(){
+  if(!navigator.geolocation)return alert('No GPS available');
+  toast('Getting location…');
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var la=pos.coords.latitude,lo=pos.coords.longitude;PP.loc={lat:la,lng:lo};
+    var q=(($('pp-q')||{}).value||'').trim();
+    if(q)return ppSearch();
+    Promise.all([18,16].map(function(z){return fetch('https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom='+z+'&lat='+la+'&lon='+lo).then(function(r){return r.json();}).catch(function(){return null;});}))
+    .then(function(rs){var seen={};PP.results=rs.filter(Boolean).map(_nomName).filter(function(r){if(seen[r.name])return false;seen[r.name]=1;return true;});
+      // nearest saved places first
+      vals(S.places).filter(function(p){return p.lat&&Math.abs(p.lat-la)<0.01&&Math.abs(p.lng-lo)<0.01;}).forEach(function(p){PP.results.unshift({name:p.name,address:p.address+' (saved)',lat:p.lat,lng:p.lng,id:p.id});});
+      rPlaces();toast('Tip: type a store name then 🔍 to search around you',3500);});
+  },function(e){alert('Location error: '+e.message);},{enableHighAccuracy:true,timeout:12000});
+}
+function ppChooseResult(i){var r=PP.results[i];if(r.id)return ppChoose(r.id);
+  var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===r.name.toLowerCase()&&(p.address||'')===(r.address||'');});if(ex)return ppChoose(ex.id);
+  var p=put('places',{id:'pl_'+gid(),name:r.name,address:r.address,lat:r.lat,lng:r.lng});ppChoose(p.id);}
+
+// ════════════ CALENDAR TAB ════════════
+function viewCal(){
+  var y=L.calY,m=L.calM,first=new Date(y,m,1),days=new Date(y,m+1,0).getDate(),start=first.getDay();
+  var pre=y+'-'+String(m+1).padStart(2,'0')+'-';
+  var byDay={},uniq={},cnt=0;
+  vals(S.sightings).forEach(function(s){if(!s.date||s.date.indexOf(pre)!==0)return;if(L.personFilter!=='all'&&(s.by||[]).indexOf(L.personFilter)<0)return;(byDay[s.date]=byDay[s.date]||[]).push(s);uniq[s.item]=1;cnt++;});
+  var h='<div class="cal-h"><button class="btn btn-s" onclick="calNav(-1)">‹</button><h2>'+first.toLocaleDateString(undefined,{month:'long',year:'numeric'})+'</h2><button class="btn btn-s" onclick="calNav(1)">›</button></div>';
+  h+='<div class="chips"><button class="chip'+(L.personFilter==='all'?' on':'')+'" onclick="L.personFilter=\'all\';svL();render()">Everyone</button>'+peopleList().map(function(p){return'<button class="chip'+(L.personFilter===p.id?' on':'')+'" onclick="L.personFilter=\''+p.id+'\';svL();render()">'+pdot(p.id,1)+esc(p.name)+'</button>';}).join('')+'<button class="chip" onclick="L.calY=new Date().getFullYear();L.calM=new Date().getMonth();svL();render()">Today</button></div>';
+  h+='<div class="stat-row"><div class="stat"><b>'+cnt+'</b><span>sightings</span></div><div class="stat"><b>'+Object.keys(uniq).length+'</b><span>items</span></div><div class="stat"><b>'+Object.keys(byDay).length+'</b><span>days out spotting</span></div></div>';
+  h+='<div class="cal-grid">'+['S','M','T','W','T','F','S'].map(function(d){return'<div class="cal-dow">'+d+'</div>';}).join('');
+  for(var i=0;i<start;i++)h+='<div></div>';
+  var t=tod();
+  for(var d=1;d<=days;d++){
+    var ds=pre+String(d).padStart(2,'0'),ss=byDay[ds]||[];
+    var who={};ss.forEach(function(s){(s.by||[]).forEach(function(p){who[p]=1;});});
+    var its=[],seen={};ss.forEach(function(s){if(!seen[s.item]){seen[s.item]=1;its.push(s.item);}});
+    h+='<div class="cal-cell'+(ds===t?' today':'')+'" onclick="openDay(\''+ds+'\')"><span class="dn">'+d+'</span>'+
+      '<div class="cal-dots">'+Object.keys(who).map(function(p){var pp=person(p);return pp?'<i style="background:'+pp.color+'"></i>':'';}).join('')+'</div>'+
+      '<div class="cal-thumbs">'+its.slice(0,4).map(function(id){var it=S.items[id];if(!it)return'';var c=cat(it.cat);return it.img?imgHTML(it.img):'<span>'+(c?c.icon:'📦')+'</span>';}).join('')+'</div>'+
+      (its.length>4?'<span class="cal-more">+'+(its.length-4)+'</span>':'')+'</div>';
+  }
+  h+='</div>';
+  // month list
+  var dates=Object.keys(byDay).sort().reverse();
+  if(dates.length){h+='<div class="m-lbl" style="margin-top:16px">This month</div>';
+    dates.forEach(function(ds){h+='<div style="font-size:12px;font-weight:700;margin:10px 0 2px">'+fmtDate(ds)+'</div>';byDay[ds].forEach(function(s){h+=daySightRow(s);});});}
+  return h;
+}
+function daySightRow(s){var it=S.items[s.item]||{name:'(deleted item)'},c=cat(it.cat);
+  return'<div class="li" onclick="openItemModal(\''+s.item+'\')">'+(it.img?imgHTML(it.img,'thumb'):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div class="grow"><div class="t">'+esc(it.name)+'</div><div class="s">'+(s.place?'📍 '+esc(placeName(s.place)):'')+(s.note?' · '+esc(s.note):'')+'</div></div><div class="row" style="gap:2px">'+(s.by||[]).map(function(p){return pdot(p);}).join('')+'</div></div>';}
+function calNav(d){L.calM+=d;if(L.calM<0){L.calM=11;L.calY--;}if(L.calM>11){L.calM=0;L.calY++;}svL();render();}
+function openDay(ds){
+  var ss=vals(S.sightings).filter(function(s){return s.date===ds;}).sort(function(a,b){return(a.created||0)-(b.created||0);});
+  var h='<div class="mo-h"><h3>📅 '+new Date(ds+'T12:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'})+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+=ss.length?ss.map(function(s){var it=S.items[s.item]||{name:'(deleted)'},c=cat(it.cat);return'<div class="li" onclick="openSighting(\''+s.id+'\')">'+(it.img?imgHTML(it.img,'thumb'):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div class="grow"><div class="t">'+esc(it.name)+'</div><div class="s">'+(s.place?'📍 '+esc(placeName(s.place)):'')+(s.note?' · '+esc(s.note):'')+'</div></div><div class="row" style="gap:2px">'+(s.by||[]).map(function(p){return pdot(p);}).join('')+'</div></div>';}).join(''):'<div class="empty" style="padding:20px">Nothing spotted this day.</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="dayPickItem(\''+ds+'\')">＋ Existing item</button><button class="btn btn-p" onclick="closeModal(1);openItemModal(null,{});IM.first.date=\''+ds+'\';rItem()">📷 New item</button></div>';
+  var m=openModal(h,1);m.setAttribute('data-day',ds);
+}
+function dayPickItem(ds){openItemPicker(function(id){openSighting(null,{item:id,date:ds});},{title:'Which item?'});}
+
+// ── generic item picker (level 2) ──
+var IPK=null;
+function openItemPicker(cb,o){IPK={cb:cb,o:o||{},q:'',cat:(o&&o.cat)||'all'};rPicker();}
+function rPicker(){
+  var q=IPK.q.toLowerCase(),list=vals(S.items).filter(function(it){return(IPK.cat==='all'||it.cat===IPK.cat)&&(!q||it.name.toLowerCase().indexOf(q)>=0);}).sort(function(a,b){return a.name.localeCompare(b.name);});
+  var h='<div class="mo-h"><h3>'+esc(IPK.o.title||'Pick an item')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<input class="m-in" id="ipk-q" placeholder="Search…" value="'+esc(IPK.q)+'" oninput="IPK.q=this.value;debounce(\'ipk\',function(){rPicker();var e=$(\'ipk-q\');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},250)">';
+  h+='<div class="chips" style="margin-top:6px"><button class="chip'+(IPK.cat==='all'?' on':'')+'" onclick="IPK.cat=\'all\';rPicker()">All</button>'+catList().map(function(c){return'<button class="chip'+(IPK.cat===c.id?' on':'')+'" onclick="IPK.cat=\''+c.id+'\';rPicker()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+=list.length?'<div class="pick-grid">'+list.map(function(it){var c=cat(it.cat);return'<div class="pick" onclick="var cb=IPK.cb;closeModal(2);cb(\''+it.id+'\')">'+(it.img?imgHTML(it.img):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div>'+esc(it.name)+'</div></div>';}).join('')+'</div>':'<div class="empty" style="padding:20px">No items here yet.</div>';
+  h+='</div>';
+  openModal(h,2);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  BINGO
+//  card: {id,name,size,free,cells:[{t:'item'|'cat'|'text'|'free'|'empty',ref,text,lock,done:{d,by,sid,item}}],
+//         pool:{cats:[],items:true,wild:true,prompts:'',fresh:true},lines,created,u}
+// ════════════════════════════════════════════════════════════════
+function lettersFor(n){return n===5?['B','I','N','G','O']:n===4?['B','I','N','G']:['B','I','N'];}
+function viewBingo(){
+  var cards=vals(S.cards).sort(function(a,b){return(b.created||0)-(a.created||0);});
+  var act=L.activeCard&&S.cards[L.activeCard]?S.cards[L.activeCard]:null;
+  if(act)return viewCard(act);
+  var h='<div class="row" style="margin-bottom:10px"><h2 style="flex:1;font-size:20px">Bingo cards</h2><button class="btn btn-p" onclick="openCardMaker()">＋ New card</button></div>';
+  if(!cards.length)return h+'<div class="empty"><div class="big">🎱</div><b>No cards yet.</b><br>Make a card from your categories — randomize it or fill slots by hand.<br>When you spot something, tap its square to stamp it (and add it as a new item on the spot).</div>';
+  h+='<div class="card-list">'+cards.map(function(c){
+    var n=c.size,done=c.cells.filter(function(x){return x.done||x.t==='free';}).length,lines=bingoLines(c).length;
+    return'<div class="card-tile" onclick="L.activeCard=\''+c.id+'\';svL();render()"><div class="mini" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(x){return'<i class="'+(x.t==='free'?'f':x.done?'d':'')+'"></i>';}).join('')+'</div>'+
+      '<div class="grow" style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+esc(c.name)+'</div><div class="hint">'+n+'×'+n+' · '+done+'/'+(n*n)+' stamped'+(lines?' · <b style="color:#d97706">'+lines+' BINGO'+(lines>1?'S':'')+'</b>':'')+'</div></div><span style="font-size:20px">›</span></div>';
+  }).join('')+'</div>';
+  return h;
+}
+function cellDone(c){return c.t==='free'||!!c.done;}
+function bingoLines(card){
+  var n=card.size,cs=card.cells,L2=[],r,i;
+  for(r=0;r<n;r++){var row=[],col=[];for(i=0;i<n;i++){row.push(r*n+i);col.push(i*n+r);}L2.push(row,col);}
+  var d1=[],d2=[];for(i=0;i<n;i++){d1.push(i*n+i);d2.push(i*n+(n-1-i));}L2.push(d1,d2);
+  return L2.filter(function(l){return l.every(function(ix){return cs[ix]&&cellDone(cs[ix]);});});
+}
+function cellInner(c,i){
+  if(c.t==='free')return'<div class="bic">⭐</div><div class="bl">FREE</div>';
+  var itemId=c.done&&c.done.item?c.done.item:(c.t==='item'?c.ref:'');
+  var it=itemId&&S.items[itemId];
+  var h='';
+  if(c.t==='cat'){var k=cat(c.ref);h+='<span class="kind">any</span>';}
+  if(c.t==='text')h+='<span class="kind">✍️</span>';
+  if(c.lock)h+='<span class="lock">🔒</span>';
+  if(it&&it.img)h+=imgHTML(it.img,'',L.sticker?'data-st':'');
+  else if(c.t==='cat'){var k2=cat(c.ref);h+='<div class="bic">'+(k2?k2.icon:'❔')+'</div>';}
+  else if(c.t==='item'&&it){var k3=cat(it.cat);h+='<div class="bic">'+(k3?k3.icon:'📦')+'</div>';}
+  else if(c.t==='text')h+='<div class="bic">🔎</div>';
+  else if(c.t==='empty')h+='<div class="bic" style="opacity:.4">＋</div>';
+  var label=it?it.name:c.t==='cat'?(cat(c.ref)||{name:'?'}).name:c.t==='text'?c.text:'';
+  if(label)h+='<div class="bl">'+esc(label)+'</div>';
+  if(c.done){var p=person((c.done.by||[])[0]);h+='<div class="stamp" style="background:'+(p?p.color:'#f59e0b')+'"></div><div class="by">'+(c.done.by||[]).map(function(x){return pdot(x,1);}).join('')+'</div>';}
+  return h;
+}
+function viewCard(c){
+  var n=c.size,lines=bingoLines(c),win={};lines.forEach(function(l){l.forEach(function(i){win[i]=1;});});
+  var h='<div class="row" style="margin-bottom:4px"><button class="btn btn-s btn-sm" onclick="L.activeCard=\'\';svL();render()">‹ Cards</button><div class="spacer"></div>'+
+    '<button class="btn btn-s btn-sm" onclick="openCardMaker(\''+c.id+'\')">✏️ Edit</button><button class="btn btn-s btn-sm" onclick="cardMenu(\''+c.id+'\')">⋯</button></div>';
+  h+='<div class="bingo-wrap size-'+n+'"><div class="bingo-title">'+esc(c.name)+'</div>';
+  if(lines.length)h+='<div class="bingo-banner">BINGO'+(lines.length>1?' ×'+lines.length:'')+'!</div>';
+  h+='<div class="bingo-letters" style="grid-template-columns:repeat('+n+',1fr);padding:0 9px">'+lettersFor(n).map(function(x){return'<b>'+x+'</b>';}).join('')+'</div>';
+  h+='<div class="bingo" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){
+    return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(cell.done?' done':'')+(win[i]?' win':'')+'" onclick="openCell(\''+c.id+'\','+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
+  var done=c.cells.filter(cellDone).length;
+  h+='<div class="hint" style="text-align:center;margin-top:8px">'+done+' / '+(n*n)+' stamped · tap a square when you spot it</div>';
+  // who's winning
+  var tally={};c.cells.forEach(function(x){if(x.done)(x.done.by||[]).forEach(function(p){tally[p]=(tally[p]||0)+1;});});
+  if(Object.keys(tally).length)h+='<div class="row" style="justify-content:center;margin-top:6px;gap:12px">'+Object.keys(tally).map(function(p){var pp=person(p);return pp?'<span class="row" style="gap:4px;font-size:13px;font-weight:700">'+pdot(p)+tally[p]+'</span>':'';}).join('')+'</div>';
+  h+='</div>';
+  return h;
+}
+function cardMenu(id){
+  var c=S.cards[id];
+  var h='<div class="mo-h"><h3>'+esc(c.name)+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);reshuffleOpen(\''+id+'\')">🔀 Re-roll unstamped, unlocked squares</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);duplicateCard(\''+id+'\')">📄 Duplicate as a fresh card</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);clearStamps(\''+id+'\')">🧽 Clear all stamps (keeps sightings)</button>'+
+    '<button class="btn btn-d btn-block" onclick="closeModal(1);deleteCard(\''+id+'\')">🗑️ Delete card</button></div>';
+  openModal(h,1);
+}
+function reshuffleOpen(id){var c=clone(S.cards[id]);fillCard(c,true);put('cards',c);render();toast('Re-rolled');}
+function duplicateCard(id){var c=clone(S.cards[id]);c.id='cd_'+gid();c.name+=' (new)';c.created=now();c.cells.forEach(function(x){x.done=null;});c.lines=0;put('cards',c);L.activeCard=c.id;svL();render();}
+function clearStamps(id){if(!confirm('Clear every stamp on this card? Sightings stay in the item log.'))return;var c=S.cards[id];c.cells.forEach(function(x){x.done=null;});c.lines=0;put('cards',c);render();}
+function deleteCard(id){if(!confirm('Delete "'+S.cards[id].name+'"?'))return;del('cards',id);L.activeCard='';svL();render();}
+
+// ── fill / randomize ──
+function poolFor(c){
+  var p=c.pool||{},cats=(p.cats&&p.cats.length)?p.cats:catList().map(function(x){return x.id;});
+  var idx=sightIndex().by,out=[];
+  if(p.items!==false)vals(S.items).forEach(function(it){if(cats.indexOf(it.cat)<0)return;if(p.fresh&&(idx[it.id]||[]).length)return;out.push({t:'item',ref:it.id});});
+  if(p.wild!==false)cats.forEach(function(id){out.push({t:'cat',ref:id});});
+  String(p.prompts||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).forEach(function(s){out.push({t:'text',text:s});});
+  return out;
+}
+function fillCard(c,onlyOpen){
+  var n=c.size,mid=(n%2===1&&c.free)?Math.floor(n*n/2):-1;
+  while(c.cells.length<n*n)c.cells.push({t:'empty'});c.cells.length=n*n;
+  c.cells.forEach(function(x,i){if(i===mid){c.cells[i]={t:'free'};}else if(x.t==='free')c.cells[i]={t:'empty'};});
+  var used={};c.cells.forEach(function(x){if(x.lock||x.done)used[x.t+':'+(x.ref||x.text)]=1;});
+  var pool=shuffle(poolFor(c)).filter(function(e){return!used[e.t+':'+(e.ref||e.text)];});
+  // spread wildcards: put specific items/prompts first, then cat wildcards, reshuffle
+  var specific=pool.filter(function(e){return e.t!=='cat';}),wild=pool.filter(function(e){return e.t==='cat';});
+  var open=c.cells.map(function(x,i){return i;}).filter(function(i){var x=c.cells[i];return x.t!=='free'&&!x.lock&&!x.done&&(!onlyOpen||true);});
+  var picks=shuffle(specific.slice(0,open.length).concat(wild).slice(0,open.length));
+  // allow repeated category wildcards if pool is small
+  var wi=0;while(picks.length<open.length&&wild.length){picks.push(wild[wi++%wild.length]);}
+  open.forEach(function(ci,k){c.cells[ci]=picks[k]?Object.assign({},picks[k]):{t:'empty'};});
+  return c;
+}
+
+// ── card maker ──
+var CM=null;
+function openCardMaker(id){
+  if(id&&S.cards[id])CM={c:clone(S.cards[id]),isNew:false};
+  else{CM={c:{id:'cd_'+gid(),name:'Bingo '+(Object.keys(S.cards).length+1),size:5,free:true,cells:[],pool:{cats:[],items:true,wild:true,fresh:false,prompts:''},created:now()},isNew:true};fillCard(CM.c);}
+  rCM();
+}
+function _cmCap(){var e;if((e=$('cm-name')))CM.c.name=e.value;if((e=$('cm-prompts')))CM.c.pool.prompts=e.value;}
+function rCM(){
+  _cmCap();var c=CM.c,n=c.size,p=c.pool;
+  var h='<div class="mo-h"><h3>'+(CM.isNew?'🎱 New bingo card':'✏️ Edit card')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<input class="m-in" id="cm-name" value="'+esc(c.name)+'" placeholder="Card name, e.g. Mall Saturday">';
+  h+='<div class="m-lbl">Size</div><div class="seg">'+[3,4,5].map(function(s){return'<button class="'+(n===s?'on':'')+'" onclick="cmSize('+s+')">'+s+'×'+s+'</button>';}).join('')+'</div>';
+  if(n%2===1)h+='<label class="toggle"><input type="checkbox" '+(c.free?'checked':'')+' onchange="_cmCap();CM.c.free=this.checked;fillCardKeep();rCM()">⭐ Free center square</label>';
+  h+='<div class="m-lbl">Pull from categories <span class="r hint">none selected = all</span></div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){var on=(p.cats||[]).indexOf(k.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="cmCat(\''+k.id+'\')">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div>';
+  h+='<label class="toggle"><input type="checkbox" '+(p.items!==false?'checked':'')+' onchange="_cmCap();CM.c.pool.items=this.checked">Specific items you\'ve added</label>';
+  h+='<label class="toggle" style="padding-left:26px"><input type="checkbox" '+(p.fresh?'checked':'')+' onchange="_cmCap();CM.c.pool.fresh=this.checked">…only ones not spotted yet</label>';
+  h+='<label class="toggle"><input type="checkbox" '+(p.wild!==false?'checked':'')+' onchange="_cmCap();CM.c.pool.wild=this.checked">"Any ___" category squares</label>';
+  h+='<div class="m-lbl">Custom squares <span class="r hint">one per line</span></div><textarea class="m-in" id="cm-prompts" placeholder="Red sneakers\nSomeone in a Jordan 1\nA corgi\nVintage jacket">'+esc(p.prompts||'')+'</textarea>';
+  h+='<div class="row" style="margin-top:10px"><button class="btn btn-p" style="flex:1" onclick="_cmCap();fillCard(CM.c);rCM()">🎲 Randomize</button><button class="btn btn-s" onclick="_cmCap();CM.c.cells=CM.c.cells.map(function(x){return x.t===\'free\'?x:{t:\'empty\'};});rCM()">Clear</button></div>';
+  h+='<div class="hint" style="margin:8px 0 4px">Tap a square to set it by hand. 🔒 locked squares stay put when you randomize.</div>';
+  h+='<div class="bingo size-'+n+'" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(cell.done?' done':'')+'" onclick="_cmCap();editCell('+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveCard()">Save card</button></div>';
+  openModal(h,1);
+}
+function cmSize(s){_cmCap();CM.c.size=s;fillCardKeep();rCM();}
+function fillCardKeep(){var c=CM.c,n=c.size,old=c.cells.filter(function(x){return x.t!=='free';});c.cells=[];var mid=(n%2===1&&c.free)?Math.floor(n*n/2):-1;var k=0;for(var i=0;i<n*n;i++){if(i===mid)c.cells.push({t:'free'});else c.cells.push(old[k++]||{t:'empty'});}}
+function cmCat(id){_cmCap();var a=CM.c.pool.cats=CM.c.pool.cats||[];var i=a.indexOf(id);if(i>=0)a.splice(i,1);else a.push(id);rCM();}
+function saveCard(){_cmCap();var c=CM.c;if(!c.name.trim())c.name='Bingo';c.lines=bingoLines(c).length;put('cards',c);L.activeCard=c.id;L.tab='bingo';svL();closeModal(1);render();}
+// manual square editor (level 2, inside card maker)
+function editCell(i){
+  var cell=CM.c.cells[i];
+  var h='<div class="mo-h"><h3>Square '+(i+1)+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<div style="display:grid;gap:8px">'+
+    '<button class="btn btn-s btn-block" onclick="openItemPicker(function(id){CM.c.cells['+i+']={t:\'item\',ref:id,lock:true};rCM();},{title:\'Pick an item for this square\'})">🏷️ A specific item</button>'+
+    '<div><div class="m-lbl">Any item from a category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){return'<button class="chip'+(cell.t==='cat'&&cell.ref===k.id?' on':'')+'" onclick="CM.c.cells['+i+']={t:\'cat\',ref:\''+k.id+'\',lock:true};closeModal(2);rCM()">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div></div>'+
+    '<div><div class="m-lbl">Custom text</div><div class="row"><input class="m-in" id="ec-text" value="'+esc(cell.t==='text'?cell.text:'')+'" placeholder="e.g. Someone in a Supreme hoodie"><button class="btn btn-p" onclick="var v=$(\'ec-text\').value.trim();if(v){CM.c.cells['+i+']={t:\'text\',text:v,lock:true};closeModal(2);rCM();}">Set</button></div></div>';
+  if(CM.c.size%2===1)h+='<button class="btn btn-s btn-block" onclick="CM.c.cells['+i+']={t:\'free\'};closeModal(2);rCM()">⭐ Make it a free square</button>';
+  h+='<div class="row"><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+'].lock=!CM.c.cells['+i+'].lock;closeModal(2);rCM()">'+(cell.lock?'🔓 Unlock':'🔒 Lock')+'</button><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+']={t:\'empty\'};closeModal(2);rCM()">Empty</button>'+
+    (cell.done?'<button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+'].done=null;closeModal(2);rCM()">Unstamp</button>':'')+'</div></div></div>';
+  openModal(h,2);
+}
+
+// ── playing: tap a square ──
+function openCell(cid,i){
+  var c=S.cards[cid],cell=c.cells[i];
+  if(cell.t==='free')return toast('Free square ⭐');
+  if(cell.t==='empty'){openCardMaker(cid);return setTimeout(function(){editCell(i);},50);}
+  var ctx={card:cid,cell:i};
+  var itemId=cell.done&&cell.done.item?cell.done.item:(cell.t==='item'?cell.ref:'');
+  var it=itemId&&S.items[itemId];
+  var title=it?it.name:cell.t==='cat'?'Any '+((cat(cell.ref)||{}).name||''):cell.text;
+  var h='<div class="mo-h"><h3>'+esc(title)+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  if(it&&it.img)h+='<div style="text-align:center">'+imgHTML(it.img,'','style="max-width:70%;max-height:30vh" data-st')+'</div>';
+  if(cell.done){
+    var s=S.sightings[cell.done.sid];
+    h+='<div class="sec"><b>Stamped '+fmtDate(cell.done.d)+'</b> by '+(cell.done.by||[]).map(function(p){return(person(p)||{name:'?'}).name;}).join(' & ')+(s&&s.place?' · 📍 '+esc(placeName(s.place)):'')+'</div>';
+    h+='</div><div class="mo-f"><button class="btn btn-s" onclick="unstamp(\''+cid+'\','+i+')">Unstamp</button>'+(it?'<button class="btn btn-p" onclick="closeModal(1);openItemModal(\''+it.id+'\')">Open item</button>':'')+'</div>';
+    return openModal(h,1);
+  }
+  if(cell.t==='item'&&it){
+    var ss=itemSightings(it.id);
+    h+='<div class="hint" style="text-align:center;margin:6px 0">'+(ss.length?'Spotted '+ss.length+'× before · last '+fmtDate(ss[0].date):'Never spotted yet')+'</div>';
+    h+='<div style="display:grid;gap:8px;margin-top:8px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);quickSight(\''+it.id+'\','+JSON.stringify(ctx).replace(/"/g,'&quot;')+')">✅ Spotted it — '+esc(person(L.me).name)+', today</button>'+
+      '<button class="btn btn-s btn-block" onclick="closeModal(1);openSighting(null,{item:\''+it.id+'\',ctx:'+JSON.stringify(ctx).replace(/"/g,'&quot;')+'})">＋ Spotted with details (who / where / photo)</button></div>';
+  }else{
+    var k=cell.t==='cat'?cat(cell.ref):null;
+    h+='<div style="display:grid;gap:8px;margin-top:4px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);openItemModal(null,{cat:\''+(k?k.id:'')+'\',name:\''+(cell.t==='text'?esc(jsq(cell.text)):'')+'\',ctx:'+JSON.stringify(ctx).replace(/"/g,'&quot;')+'});setTimeout(function(){studioPick(\'cam\');},60)">📷 Snap it → new item</button>'+
+      '<button class="btn btn-s btn-block" onclick="cellLinkExisting(\''+cid+'\','+i+')">🏷️ It\'s an item I already have</button></div>';
+    if(k){var inCat=vals(S.items).filter(function(x){return x.cat===k.id;});if(inCat.length)h+='<div class="m-lbl">Quick pick from '+esc(k.name)+'</div><div class="pick-grid">'+inCat.slice(0,24).map(function(x){return'<div class="pick" onclick="closeModal(1);quickSight(\''+x.id+'\','+JSON.stringify(ctx).replace(/"/g,'&quot;')+')">'+(x.img?imgHTML(x.img):'<div class="thumb">'+k.icon+'</div>')+'<div>'+esc(x.name)+'</div></div>';}).join('')+'</div>';}
+  }
+  h+='</div>';
+  openModal(h,1);
+}
+function cellLinkExisting(cid,i){var cell=S.cards[cid].cells[i];openItemPicker(function(id){closeModal(1);quickSight(id,{card:cid,cell:i});},{title:'Which item did you spot?',cat:cell.t==='cat'?cell.ref:'all'});}
+function unstamp(cid,i){var c=S.cards[cid];c.cells[i].done=null;c.lines=bingoLines(c).length;put('cards',c);closeModal(1);render();}
+function fulfilCell(cid,i,itemId,s){
+  var c=S.cards[cid];if(!c||!c.cells[i])return;
+  var before=c.lines||bingoLines(c).length;
+  c.cells[i].done={d:s.date||tod(),by:(s.by||[L.me]).slice(),sid:s.id,item:itemId};
+  var after=bingoLines(c).length;c.lines=after;put('cards',c);
+  if(s&&!s.card){s.card=cid;put('sightings',s);}
+  L.activeCard=cid;L.tab='bingo';svL();render();
+  if(after>before)celebrate(after);
+}
+function celebrate(n){
+  var cols=['#f59e0b','#ef4444','#0ea5e9','#8b5cf6','#22c55e','#ec4899'];
+  for(var i=0;i<70;i++){var d=document.createElement('div');d.className='confetti';d.style.left=Math.random()*100+'vw';d.style.background=cols[i%cols.length];d.style.animationDuration=(1.6+Math.random()*1.8)+'s';d.style.animationDelay=(Math.random()*0.4)+'s';document.body.appendChild(d);(function(d){setTimeout(function(){d.remove();},4000);})(d);}
+  toast('🎉 BINGO'+(n>1?' ×'+n:'')+'!',3000);
+  try{navigator.vibrate&&navigator.vibrate([60,40,120]);}catch(e){}
+}
+
+// ════════════ MANAGERS ════════════
+function quickNewCat(cb){var n=prompt('New category name (e.g. Hats):');if(!n)return;var ic=prompt('Emoji for '+n+':','🏷️')||'🏷️';
+  var c=put('categories',{id:'c_'+gid(),name:n.trim(),icon:ic.trim(),color:'#64748b',hint:'',order:Object.keys(S.categories).length});cb&&cb(c.id);}
+function openCatManager(){
+  var h='<div class="mo-h"><h3>🗂️ Categories</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint" style="margin-bottom:6px">The AI hint is added to the product-shot prompt for items in that category.</div>';
+  catList().forEach(function(c){var n=vals(S.items).filter(function(i){return i.cat===c.id;}).length;
+    h+='<div class="sec" style="margin-top:6px"><div class="row"><input class="m-in" style="width:52px;text-align:center;font-size:20px;padding:6px" value="'+esc(c.icon)+'" onchange="catSet(\''+c.id+'\',\'icon\',this.value)">'+
+    '<input class="m-in" value="'+esc(c.name)+'" onchange="catSet(\''+c.id+'\',\'name\',this.value)"><button class="btn btn-g" onclick="catDel(\''+c.id+'\')">🗑</button></div>'+
+    '<input class="m-in" style="margin-top:6px;font-size:13px" placeholder="AI hint, e.g. laid flat, sleeves spread" value="'+esc(c.hint||'')+'" onchange="catSet(\''+c.id+'\',\'hint\',this.value)">'+
+    '<div class="hint" style="margin-top:3px">'+n+' item'+(n===1?'':'s')+'</div></div>';});
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="quickNewCat(function(){openCatManager();render();})">＋ Add category</button><button class="btn btn-p" onclick="closeModal(2);render();if(IM)rItem();">Done</button></div>';
+  openModal(h,2);
+}
+function catSet(id,k,v){var c=clone(S.categories[id]);c[k]=v.trim();put('categories',c);}
+function catDel(id){var n=vals(S.items).filter(function(i){return i.cat===id;}).length;if(!confirm('Delete category "'+S.categories[id].name+'"?'+(n?'\n'+n+' items will become uncategorised.':'')))return;
+  vals(S.items).forEach(function(i){if(i.cat===id){var x=clone(i);x.cat='';put('items',x);}});del('categories',id);openCatManager();render();}
+function openPeopleManager(){
+  var h='<div class="mo-h"><h3>👥 People</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint">“Me” on the top bar decides who gets credit by default on this phone. Angela sets herself on hers.</div>';
+  peopleList().forEach(function(p){
+    h+='<div class="li"><input type="color" value="'+esc(p.color)+'" onchange="pSet(\''+p.id+'\',\'color\',this.value)" style="width:34px;height:34px;border:none;background:none;padding:0">'+
+      '<input class="m-in" value="'+esc(p.name)+'" onchange="pSet(\''+p.id+'\',\'name\',this.value)">'+
+      '<button class="btn '+(L.me===p.id?'btn-p':'btn-s')+' btn-sm" onclick="L.me=\''+p.id+'\';svL();openPeopleManager();render()">'+(L.me===p.id?'Me ✓':'Me')+'</button>'+
+      '<button class="btn btn-g" onclick="pDel(\''+p.id+'\')">🗑</button></div>';});
+  h+='<div class="row" style="margin-top:10px"><input class="m-in" id="pp-new" placeholder="Add a person…" onkeydown="if(event.key===\'Enter\')pAdd()"><button class="btn btn-p" onclick="pAdd()">＋</button></div>';
+  h+='</div><div class="mo-f"><button class="btn btn-p" onclick="closeModal(3);render();if(IM)rItem();if(SM&&$(\'mo-l2\'))rSight();">Done</button></div>';
+  openModal(h,3);
+}
+function pSet(id,k,v){var p=clone(S.people[id]);p[k]=v.trim();put('people',p);render();}
+function pAdd(){var n=($('pp-new').value||'').trim();if(!n)return;var cols=['#f97316','#22c55e','#ec4899','#eab308','#14b8a6','#ef4444','#64748b'];put('people',{id:'p_'+gid(),name:n,color:cols[Object.keys(S.people).length%cols.length],order:Object.keys(S.people).length});openPeopleManager();}
+function pDel(id){if(Object.keys(S.people).length<2)return alert('Keep at least one person.');var n=vals(S.sightings).filter(function(s){return(s.by||[]).indexOf(id)>=0;}).length;
+  if(!confirm('Remove '+S.people[id].name+'?'+(n?' Their name will disappear from '+n+' sightings.':'')))return;del('people',id);if(L.me===id){L.me=Object.keys(S.people)[0];svL();}openPeopleManager();}
+
+// ════════════ SETTINGS ════════════
+function openSettings(sec){
+  var cfg=fbCfg()||{},room=FB.room||fbRoom();
+  var nI=Object.keys(S.items).length,nS=Object.keys(S.sightings).length;
+  var h='<div class="mo-h"><h3>⚙️ Settings</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  // people & categories
+  h+='<div class="sec"><h4>👥 People & 🗂️ Categories</h4><div class="row"><button class="btn btn-s" style="flex:1" onclick="openPeopleManager()">People ('+Object.keys(S.people).length+')</button><button class="btn btn-s" style="flex:1" onclick="openCatManager()">Categories ('+Object.keys(S.categories).length+')</button></div></div>';
+  // sync
+  h+='<div class="sec" id="sec-sync"><h4>☁️ Firebase sync</h4>';
+  if(FB.connected){
+    h+='<div class="hint">Room <b>'+esc(FB.room)+'</b> · '+esc(cfg.databaseURL||'')+'<br>Data: <span class="kbd">rooms/'+esc(FB.room)+'/bingo</span> (+ bingo_images) — separate from the journal\'s data.<br>'+(FB.err?'<span style="color:var(--bad)">⚠ '+esc(FB.err)+'</span><br>':'')+
+      Object.keys(DIRTY).length+' changes pending · '+IMGQ.length+' images to upload'+(FB.lastOk?' · last OK '+new Date(FB.lastOk).toLocaleTimeString():'')+'</div>';
+    h+='<div class="row" style="margin-top:8px"><button class="btn btn-s" style="flex:1" onclick="fbTogglePause();openSettings(\'sync\')">'+(FB.paused?'▶ Resume':'⏸ Pause')+'</button><button class="btn btn-s" style="flex:1" onclick="fbForcePush()">⬆ Push all</button><button class="btn btn-d" onclick="if(confirm(\'Disconnect this phone from sync? Local data stays.\')){fbDisconnect();openSettings(\'sync\');}">Disconnect</button></div>';
+  }else{
+    h+='<div class="hint">Use the same Firebase project as Decade Journal. Fastest: import your journal\'s <span class="kbd">dj-settings.json</span> (Firebase panel → export settings) with the 📂 button below.</div>';
+    h+='<input class="m-in" id="fb-key" placeholder="API key" value="'+esc(cfg.apiKey||'')+'" style="margin-top:8px"><input class="m-in" id="fb-url" placeholder="Database URL (https://xxx.firebaseio.com)" value="'+esc(cfg.databaseURL||'')+'" style="margin-top:6px">'+
+      '<input class="m-in" id="fb-pid" placeholder="Project ID (optional)" value="'+esc(cfg.projectId||'')+'" style="margin-top:6px"><input class="m-in" id="fb-room" placeholder="Room name (same as the journal is fine)" value="'+esc(room||'')+'" style="margin-top:6px">'+
+      '<div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="fbConnectForm()">Connect</button><button class="btn btn-s" onclick="importFile()">📂 Import settings file</button></div>';
+  }
+  h+='</div>';
+  // AI
+  h+='<div class="sec" id="sec-ai"><h4>🪄 AI product shots</h4><div class="hint">Your photo is sent straight from this phone to the provider you pick. Keys are stored on this device'+(L.syncKeys?' and synced to your room':'')+'.</div>';
+  h+='<div class="seg" style="margin-top:8px"><button class="'+(L.aiProvider!=='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'gemini\')">Google Gemini</button><button class="'+(L.aiProvider==='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'openai\')">OpenAI</button></div>';
+  if(L.aiProvider!=='openai'){
+    h+='<input class="m-in" type="password" placeholder="Gemini API key (aistudio.google.com/apikey)" value="'+esc(L.geminiKey)+'" onchange="setAI(\'geminiKey\',this.value.trim(),1)" style="margin-top:8px">';
+    h+='<div class="row" style="margin-top:6px"><span class="hint" style="width:60px">Model</span><input class="m-in" list="gem-models" value="'+esc(L.geminiModel)+'" onchange="setAI(\'geminiModel\',this.value.trim(),1)"></div><datalist id="gem-models"><option value="gemini-3.1-flash-image">Nano Banana 2</option><option value="gemini-nano-banana-2.1">Nano Banana 2.1</option><option value="gemini-3.1-flash-lite-image">Nano Banana 2 Lite</option><option value="gemini-3-pro-image">Nano Banana Pro</option></datalist>';
+  }else{
+    h+='<input class="m-in" type="password" placeholder="OpenAI API key (sk-…)" value="'+esc(L.openaiKey)+'" onchange="setAI(\'openaiKey\',this.value.trim(),1)" style="margin-top:8px">';
+    h+='<div class="row" style="margin-top:6px"><span class="hint" style="width:60px">Model</span><input class="m-in" list="oai-models" value="'+esc(L.openaiModel)+'" onchange="setAI(\'openaiModel\',this.value.trim(),1)"></div><datalist id="oai-models"><option value="gpt-image-2.5-sunburst"></option><option value="gpt-image-2.5-flare"></option><option value="gpt-image-1"></option></datalist>';
+  }
+  h+='<label class="toggle"><input type="checkbox" '+(L.syncKeys?'checked':'')+' onchange="L.syncKeys=this.checked;svL();syncKeysNow()">Share keys with our other phones through the room</label>';
+  h+='<div class="m-lbl">Product-shot prompt <span class="r"><button class="btn btn-g btn-sm" onclick="if(confirm(\'Reset prompt to default?\')){var m=clone(shared());m.prompt=DEFAULT_PROMPT;put(\'meta\',m);openSettings(\'ai\');}">Reset</button></span></div>';
+  h+='<textarea class="m-in" style="min-height:160px;font-size:12px" onchange="var m=clone(shared());m.id=\'shared\';m.prompt=this.value;put(\'meta\',m);toast(\'Prompt saved (synced)\')">'+esc(shared().prompt||DEFAULT_PROMPT)+'</textarea>';
+  h+='<div class="hint">Category hints and the item name are appended automatically.</div></div>';
+  // on-device
+  h+='<div class="sec"><h4>✨ On-device background removal</h4><div class="hint">Runs locally (IMG.LY ISNet). The model downloads once (~40–80 MB, use Wi-Fi), then works without a key.</div>';
+  h+='<div class="seg" style="margin-top:8px">'+[['isnet_quint8','Fast'],['isnet_fp16','Balanced'],['isnet','Best']].map(function(o){return'<button class="'+(L.bgModel===o[0]?'on':'')+'" onclick="L.bgModel=\''+o[0]+'\';svL();openSettings()">'+o[1]+'</button>';}).join('')+'</div>';
+  h+='<div class="m-lbl">After taking a photo, automatically…</div><div class="seg">'+[['none','Nothing'],['quick','Quick'],['ai','AI cut-out'],['shot','Product shot']].map(function(o){return'<button class="'+(L.autoProcess===o[0]?'on':'')+'" onclick="L.autoProcess=\''+o[0]+'\';svL();openSettings()">'+o[1]+'</button>';}).join('')+'</div>';
+  h+='<div class="row" style="margin-top:8px"><button class="btn btn-s btn-sm" onclick="warmModel()">⬇ Download model now</button></div></div>';
+  // display
+  h+='<div class="sec"><h4>🎨 Display</h4><label class="toggle"><input type="checkbox" '+(L.sticker?'checked':'')+' onchange="L.sticker=this.checked;svL();render()">Dashed-outline sticker cut-outs</label>'+
+    '<div class="seg">'+[['','Auto'],['light','Light'],['dark','Dark']].map(function(o){return'<button class="'+(L.theme===o[0]?'on':'')+'" onclick="L.theme=\''+o[0]+'\';svL();applyTheme();openSettings()">'+o[1]+'</button>';}).join('')+'</div>'+
+    '<div class="row" style="margin-top:8px"><button class="btn btn-s btn-sm" onclick="resetStickers();toast(\'Stickers will regenerate\')">↻ Regenerate stickers</button></div></div>';
+  // data
+  h+='<div class="sec"><h4>💾 Backup to a real file</h4><div class="hint">'+nI+' items · '+nS+' sightings · '+Object.keys(S.cards).length+' cards · '+Object.keys(S.places).length+' places. Saves to Downloads — doesn\'t rely on browser storage.</div>'+
+    '<div class="row wrap" style="margin-top:8px"><button class="btn btn-p" onclick="exportBackup(true)">⬇ Full backup (with photos)</button><button class="btn btn-s" onclick="exportBackup(false)">⬇ Data only</button><button class="btn btn-s" onclick="importFile()">📂 Import…</button></div>'+
+    '<div class="hint" style="margin-top:6px">Import accepts a Spotted backup, Decade Journal settings (Firebase), or a Decade Journal backup (people + places).</div></div>';
+  h+='<div class="hint" style="text-align:center;margin:14px 0 4px">Spotted '+APP_VERSION+' · companion to Decade Journal</div>';
+  h+='</div>';
+  openModal(h,1);
+  if(sec){var el=$('sec-'+sec);if(el)el.scrollIntoView({block:'start'});}
+}
+function setAI(k,v,quiet){L[k]=v;svL();if(/Key$/.test(k))syncKeysNow();if(!quiet)openSettings('ai');}
+function syncKeysNow(){if(!L.syncKeys)return;put('meta',{id:'keys',gemini:L.geminiKey||'',openai:L.openaiKey||''});}
+function adoptSyncedKeys(){var k=S.meta&&S.meta.keys;if(!k)return;var ch=false;if(k.gemini&&!L.geminiKey){L.geminiKey=k.gemini;ch=true;}if(k.openai&&!L.openaiKey){L.openaiKey=k.openai;ch=true;}if(ch){L.syncKeys=true;svL();}}
+function fbConnectForm(){
+  var cfg={apiKey:$('fb-key').value.trim(),databaseURL:$('fb-url').value.trim().replace(/\/$/,''),projectId:$('fb-pid').value.trim()};
+  var room=$('fb-room').value.trim().replace(/[^a-zA-Z0-9_-]/g,'');
+  if(!cfg.apiKey||!cfg.databaseURL||!room)return alert('API key, Database URL and room are required.');
+  if(!fbInit(cfg,room))return alert('Could not connect: '+FB.err);
+  openSettings('sync');render();
+}
+function fbForcePush(){COLLS.forEach(function(c){Object.keys(S[c]).forEach(function(id){dirty(c,id);});});usedImageKeys().forEach(function(k){if(IMGQ.indexOf(k)<0)IMGQ.push(k);});try{localStorage.setItem('ib_imgq',JSON.stringify(IMGQ));}catch(e){}fbScheduleWrite();fbPumpImages();toast('Pushing everything…');}
+function warmModel(){
+  var c=document.createElement('canvas');c.width=c.height=64;var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,64,64);x.fillStyle='#e11';x.fillRect(16,16,32,32);
+  toast('Downloading model… keep the app open',4000);
+  aiRemove(c.toDataURL('image/jpeg'),function(m){debounce('warm',function(){toast(m,1500);},400);}).then(function(){toast('✅ On-device AI ready');}).catch(function(e){alert('Model download failed: '+(e.message||e));});
+}
+function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}
+
+// ════════════ BOOT ════════════
+(function boot(){
+  applyTheme();
+  ld();
+  var start=function(){
+    seedDefaults();adoptSyncedKeys();render();
+    var cfg=fbCfg(),room=fbRoom();
+    if(cfg&&room&&localStorage.getItem('ib_fb_room'))fbInit(cfg,room);
+    checkSharedImage();
+  };
+  // if localStorage was wiped, recover from the IndexedDB mirror
+  if(!Object.keys(S.items).length&&!Object.keys(S.cards).length){
+    idbGet('state','current',function(js){
+      if(js){try{var d=JSON.parse(js);if(d&&(Object.keys(d.items||{}).length||Object.keys(d.cards||{}).length)){COLLS.forEach(function(c){if(d[c])S[c]=d[c];});S._ts=d._ts;toast('Restored from on-device backup');}}catch(e){}}
+      start();
+    });
+  }else start();
+  if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').catch(function(){});
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){if(_svTimer){clearTimeout(_svTimer);_svNow();}if(_fbWT){clearTimeout(_fbWT);fbFlush();}}});
+  // re-adopt keys after sync delivers meta
+  setInterval(adoptSyncedKeys,10000);
+})();
+</script>
+</body>
+</html>
