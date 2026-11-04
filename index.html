@@ -248,7 +248,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.4.2';
+var APP_VERSION='v1.5';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
 
 // ── utils ──
@@ -2077,7 +2077,7 @@ function openIdentify(opts){
   opts=opts||{};
   var it=opts.itemId&&S.items[opts.itemId];
   ID={itemId:opts.itemId||'',cat:it?it.cat:(L.catFilter!=='all'?L.catFilter:((catList().find(function(c){return _idKind(c.id)==='shoe';})||{}).id||'')),
-    brands:[],feats:[],colors:[],text:it?(it.desc||it.notes||''):'',photo:null,results:null,question:null,excluded:[],answers:[],busy:false,
+    brands:[],feats:[],colors:[],text:it?(it.desc||it.notes||''):'',photo:null,results:null,question:null,family:null,drill:'',excluded:[],answers:[],busy:false,
     place:L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:'',date:tod()};
   rID();
 }
@@ -2121,6 +2121,16 @@ function idResultsHTML(){
   var h='';
   if(ID.busy)return'<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Thinking about what you saw…</div>';
   var r=ID.results||[];
+  if(ID.family){
+    var fam=ID.family;
+    h+='<div class="sec" style="margin-top:0;border-color:var(--accent1)"><div class="row"><b style="flex:1">🧬 '+esc(fam.name||'Same family')+'</b>'+(ID.drill?'<button class="btn btn-g btn-sm" onclick="ID.drill=\'\';idRun()">✕ '+esc(ID.drill)+'</button>':'')+'</div>'+
+      '<div class="hint" style="margin:2px 0 6px">Every version in this line. Peek with 🖼, then tap the one you saw — results narrow to that model\'s colorways.</div>'+
+      (fam.members||[]).map(function(m,i){var on=ID.drill===m.name;
+        return'<div class="li" style="padding:7px 0"><div class="grow"><div class="t">'+(on?'✅ ':'')+esc(m.name)+(m.years?' <span class="hint">'+esc(m.years)+'</span>':'')+'</div>'+(m.tell?'<div class="s" style="white-space:normal">'+esc(m.tell)+'</div>':'')+'</div>'+
+        '<a class="btn btn-s btn-sm" style="text-decoration:none;flex-shrink:0" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(m.name)+'" target="_blank" rel="noopener">🖼</a>'+
+        '<button class="btn '+(on?'btn-p':'btn-s')+' btn-sm" style="flex-shrink:0" onclick="idDrill('+i+')">This</button></div>';}).join('')+'</div>';
+  }
+  if(ID.drill)h+='<div class="m-lbl">'+esc(ID.drill)+' — colorways that fit</div>';
   if(!r.length)h+='<div class="empty" style="padding:16px">No confident matches. Try adding a detail or a color.</div>';
   h+=r.map(function(c,i){
     var q=encodeURIComponent(c.search||c.name);
@@ -2141,6 +2151,7 @@ function idResultsHTML(){
   h+='<div class="hint" style="margin-top:4px">Tip: in Google photos, long-press the right picture → <b>Share → Spotted</b> to use it as the item photo.</div>';
   return h;
 }
+function idDrill(i){var m=ID.family.members[i];ID.drill=ID.drill===m.name?'':m.name;ID.excluded=[];idRun();}
 function idAnswer(i){var q=ID.question;ID.answers.push(q.q+' → '+q.options[i]);idRun();}
 function idRefine(){var v=(($('id-more')||{}).value||'').trim();(ID.results||[]).forEach(function(c){if(ID.excluded.indexOf(c.name)<0)ID.excluded.push(c.name);});if(v)ID.answers.push('Correction: '+v);idRun();}
 function idRun(){
@@ -2148,10 +2159,14 @@ function idRun(){
   if(!desc.trim()||(!ID.text.trim()&&!ID.feats.length&&!ID.brands.length&&!ID.photo&&!ID.answers.length))return toast('Tap a few details or type a description first');
   ID.busy=true;ID.results=ID.results||[];rID();
   var sys='You identify specific products (sneakers, streetwear, clothing, collectibles, cars, etc.) from a hurried, imperfect description by someone who saw it in public and could not take a clear photo. '+
-    'Give the most likely exact model + colorway names, as they would be listed on StockX/GOAT/the brand site, so the user can search them. Consider that the user may misremember brand or details. '+
-    'Return ONLY JSON: {"candidates":[{"name":"exact searchable product name incl. colorway","colorway":"","year":"","confidence":0-100,"why":"one sentence linking it to their description","tells":"1-2 visible features to confirm at a glance","search":"best Google Images query"}],'+
-    '"question":{"q":"ONE short question whose answer best separates the top candidates","options":["2-5 short answer choices"]}}. Up to 6 candidates, best first. If very unsure, include different model families. No markdown.';
-  var user='What I saw:\n'+desc+(ID.excluded.length?'\n\nIt is NOT any of these: '+ID.excluded.join('; '):'');
+    'Work like an expert reseller, in two levels: (1) the MODEL FAMILY / LINE, then (2) the exact model version + colorway. '+
+    'If the user names or hints at a family/line (e.g. "one of the Blasts", "Jordan with a strap", "a Dunk", "Nimbus-ish", "North Face puffer"), STAY INSIDE that family: do not substitute other lines just because they share colors. '+
+    'For the most likely family, list EVERY current and recent model/version in it (e.g. ASICS Blast line = Novablast 1-5, Superblast 1-2, Megablast, Sonicblast, Dynablast 1-5, Gel-Blast FF / FF 2 / FF 3, Magic Speed if relevant; Jordan with a strap = Air Jordan 8 and its variants), each with the single most useful visual tell that separates it from its siblings (sole shape, stack height, logo placement, upper pattern, heel). '+
+    'Candidates must be exact searchable names incl. colorway as listed on StockX/GOAT/the brand site; when unsure of the version, spread candidates across different family members in the user\'s colors rather than across other families. '+
+    'Return ONLY JSON: {"family":{"name":"family/line name","members":[{"name":"exact model/version name","tell":"how to tell it apart at a glance","years":"release years"}]},'+
+    '"candidates":[{"name":"exact searchable product name incl. colorway","colorway":"","year":"","confidence":0-100,"why":"one sentence linking it to their description","tells":"1-2 visible features to confirm","search":"best Google Images query"}],'+
+    '"question":{"q":"ONE short visual question whose answer best separates the remaining options","options":["2-5 short answer choices"]}}. Up to 15 family members, up to 6 candidates, best first. No markdown.';
+  var user='What I saw:\n'+desc+(ID.drill?'\n\nCONFIRMED MODEL: '+ID.drill+'. Only give candidates of this exact model (its versions/generations and colorways that fit the colors I saw); keep the family list as context.':'')+(ID.excluded.length?'\n\nIt is NOT any of these: '+ID.excluded.join('; '):'');
   var done=function(e,txt){
     ID.busy=false;
     if(e){ID.results=ID.results&&ID.results.length?ID.results:null;rID();
@@ -2159,7 +2174,7 @@ function idRun(){
       return setTimeout(function(){alert(msg);},50);}
     var j=null;try{var m=String(txt).match(/\{[\s\S]*\}/);j=JSON.parse(m?m[0]:txt);}catch(x){}
     if(!j){ID.results=[];ID.question=null;rID();return toast('AI reply could not be read — try again');}
-    ID.results=(j.candidates||[]).filter(function(c){return c&&c.name;});ID.question=j.question&&j.question.q?j.question:null;rID();
+    ID.results=(j.candidates||[]).filter(function(c){return c&&c.name;});ID.question=j.question&&j.question.q?j.question:null;if(j.family&&(j.family.members||[]).length&&!ID.drill)ID.family=j.family;rID();
   };
   var prov=idProvider();
   var send=function(img){if(prov==='claude')_claudeID(sys,user,img,done);else _geminiID(sys,user,img,done);};
@@ -2168,7 +2183,7 @@ function idRun(){
 function _claudeID(sys,user,img,cb){
   var content=[];if(img)content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}});content.push({type:'text',text:user});
   fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':aiKeyClaude(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:(L.claudeModel||'claude-sonnet-5-5').trim(),max_tokens:1800,system:sys,messages:[{role:'user',content:content}]})})
+    body:JSON.stringify({model:(L.claudeModel||'claude-sonnet-5-5').trim(),max_tokens:3000,system:sys,messages:[{role:'user',content:content}]})})
   .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Claude HTTP '+r.status));return j;});})
   .then(function(j){cb(null,(j.content||[]).map(function(b){return b.text||'';}).join(''));}).catch(function(e){cb(e);});
 }
