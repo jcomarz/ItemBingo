@@ -234,7 +234,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.0';
+var APP_VERSION='v1.2';
 var COLLS=['people','categories','items','sightings','places','cards','meta'];
 
 // ── utils ──
@@ -257,7 +257,27 @@ var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all
   geminiKey:'',openaiKey:'',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
   bgModel:'isnet_fp16',autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
-function svL(){try{localStorage.setItem(LS_KEY,JSON.stringify(L));}catch(e){}}
+function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
+var SETTING_KEYS=['gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+// If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
+function restoreLocalSettings(cb){
+  if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
+  idbGet('state','local',function(js){var got=false;if(js){try{var o=JSON.parse(js);SETTING_KEYS.forEach(function(k){if(o[k]!=null&&o[k]!==''){L[k]=o[k];got=true;}});}catch(e){}}
+    var cfg=null;idbGet('state','fbcfg',function(c){if(c&&!localStorage.getItem('ib_fb_room')){try{c=JSON.parse(c);localStorage.setItem('ib_fb_config',JSON.stringify(c.config));localStorage.setItem('ib_fb_room',c.room);got=true;}catch(e){}}
+      if(got){svL();toast('Settings restored from on-device backup');}cb(got);});});
+}
+function exportSettings(){
+  var d={_type:'spotted-settings',_v:1,_exported:new Date().toISOString(),fb_config:fbCfg(),fb_room:FB.room||fbRoom()};
+  SETTING_KEYS.forEach(function(k){d[k]=L[k];});
+  downloadBlob(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}),'spotted-settings.json');
+  toast('Saved spotted-settings.json → Downloads. Contains your API keys — keep it private.',5000);
+}
+function importSettings(d){
+  if(!confirm('Import settings?\n\n'+(d.geminiKey?'• Gemini key\n':'')+(d.openaiKey?'• OpenAI key\n':'')+(d.fb_config?'• Firebase: '+d.fb_config.databaseURL+'\n':'')+(d.fb_room?'• Room: '+d.fb_room+'\n':'')))return;
+  SETTING_KEYS.forEach(function(k){if(d[k]!=null&&d[k]!=='')L[k]=d[k];});svL();applyTheme();
+  if(d.fb_config&&d.fb_room){localStorage.setItem('ib_fb_config',JSON.stringify(d.fb_config));fbInit(d.fb_config,d.fb_room);}
+  render();if(modalOpen(1))openSettings();toast('Settings imported ✓');
+}
 
 // ── shared state ──
 var DEFAULT_PROMPT='Turn this photo into a clean e-commerce product photo of the main item only.\n'+
@@ -391,7 +411,7 @@ function fbInit(cfg,room){
     FB.db=firebase.database();
     if(FB.listener&&FB.base)FB.base.off('value',FB.listener);
     FB.room=room;FB.base=FB.db.ref('rooms/'+room+'/bingo');FB.connected=true;FB.firstPull=false;FB.err='';
-    localStorage.setItem('ib_fb_config',JSON.stringify(cfg));localStorage.setItem('ib_fb_room',room);
+    localStorage.setItem('ib_fb_config',JSON.stringify(cfg));localStorage.setItem('ib_fb_room',room);idbPut('state','fbcfg',JSON.stringify({config:cfg,room:room}));
     if(localStorage.getItem('ib_known_room')!==room){KNOWN={};localStorage.setItem('ib_known_room',room);_saveKnown();}
     FB.listener=FB.base.on('value',fbOnValue,function(e){FB.err=e.message||String(e);syncBadge();});
     return true;
@@ -481,14 +501,15 @@ function fbDeleteImage(k){
 function syncBadge(){
   var el=$('sync-dot');if(!el)return;
   var h;
-  if(!FB.connected)h='<span style="color:var(--inkFaint)">⚫ local</span>';
-  else if(FB.paused)h='<span style="color:var(--warn)">⏸ paused</span>';
-  else if(FB.err)h='<span style="color:var(--bad)">🔴 error</span>';
-  else if(_fbWT||FB.writing||_pumping||Object.keys(DIRTY).length||IMGQ.length)h='<span style="color:var(--warn)">🟡 '+(IMGQ.length?IMGQ.length+' img':'sync')+'</span>';
-  else if(!FB.firstPull)h='<span style="color:var(--inkFaint)">⚫ …</span>';
-  else h='<span style="color:var(--good)">🟢</span>';
+  if(!FB.connected)h='<span style="color:var(--inkFaint)">⚫ off</span>';
+  else if(FB.paused)h='<span style="color:var(--warn)" title="Sync paused — tap to resume">⏸ paused</span>';
+  else if(FB.err)h='<span style="color:var(--bad)" title="'+esc(FB.err)+'">🔴 failed ↻</span>';
+  else if(_fbWT||FB.writing||_pumping||Object.keys(DIRTY).length||IMGQ.length)h='<span style="color:var(--warn)" title="Tap to pause sync">🟡 '+(IMGQ.length?IMGQ.length+' img':'syncing')+'</span>';
+  else if(!FB.firstPull)h='<span style="color:var(--inkFaint)">⚫ waiting</span>';
+  else{var ago=Math.round((now()-FB.lastOk)/1000);h='<span style="color:var(--good)" title="Tap to pause sync">🟢 '+(ago<60?ago+'s':ago<3600?Math.round(ago/60)+'m':Math.round(ago/3600)+'h')+'</span>';}
   el.innerHTML=h;
 }
+setInterval(syncBadge,30000);
 setInterval(function(){if(FB.connected&&!FB.paused&&IMGQ.length&&!_pumping)fbPumpImages();},15000);
 
 // ════════════ Backup (real file — doesn't depend on browser storage) ════════════
@@ -525,6 +546,7 @@ function importFile(){
       var d;try{d=JSON.parse(r.result);}catch(e){return alert('Not valid JSON: '+e.message);}
       if(d._type==='spotted-backup')return importSpotted(d);
       if(d._type==='decade-journal-settings')return importJournalSettings(d);
+      if(d._type==='spotted-settings')return importSettings(d);
       if(d.events||d.places||d.people)return importJournalData(d);
       alert('Unrecognised file. Expected a Spotted backup, Decade Journal settings, or Decade Journal backup.');
     };
@@ -542,11 +564,13 @@ function importSpotted(d){
   sv();render();toast('Imported ✓');
 }
 function importJournalSettings(d){
+  if(!d.fb_config&&d.gPlacesKey){L.gPlacesKey=d.gPlacesKey;svL();return toast('Google Places key imported');}
   if(!d.fb_config)return alert('That settings file has no Firebase config.');
   var room=prompt('Decade Journal Firebase config found ('+d.fb_config.databaseURL+').\n\nRoom for Spotted (data goes to rooms/<room>/bingo — separate from the journal):',d.fb_room||'');
   if(!room)return;
+  if(d.gPlacesKey){L.gPlacesKey=d.gPlacesKey;svL();}
   localStorage.setItem('ib_fb_config',JSON.stringify(d.fb_config));
-  fbInit(d.fb_config,room.trim());render();toast('Connected to room '+room);
+  fbInit(d.fb_config,room.trim());render();toast('Connected to room '+room+(d.gPlacesKey?' + Google Places key added':''));
 }
 function importJournalData(d){
   var pp=(d.people||[]),pl=(d.places||[]).filter(function(p){return p&&p.name;});
@@ -697,7 +721,10 @@ function _geminiEdit(jpg,prompt){
     method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},
     body:JSON.stringify({contents:[{role:'user',parts:[{inline_data:{mime_type:'image/jpeg',data:jpg.split(',')[1]}},{text:prompt}]}],
       generationConfig:{responseModalities:['TEXT','IMAGE']}})
-  }).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Gemini HTTP '+r.status));return j;});})
+  }).then(function(r){return r.json().then(function(j){if(!r.ok){var m=(j.error&&j.error.message)||('Gemini HTTP '+r.status);
+    if(r.status===429&&/free_tier|limit: 0/.test(m)){var e=new Error('NOBILLING');e.friendly='Gemini says this key has no free allowance for image models ("limit: 0"). Image generation needs billing turned on for the key\'s project.\n\nFix: aistudio.google.com → your key → Set up billing (each image costs a few cents).';throw e;}
+    if(r.status===429){var e2=new Error('RATE');e2.friendly='Gemini rate limit hit — wait a minute and try again.';throw e2;}
+    throw new Error(m);}return j;});})
   .then(function(j){
     var parts=((j.candidates||[])[0]||{}).content;parts=parts&&parts.parts||[];
     for(var i=0;i<parts.length;i++){var p=parts[i].inlineData||parts[i].inline_data;if(p&&p.data)return 'data:'+(p.mimeType||p.mime_type||'image/png')+';base64,'+p.data;}
@@ -939,7 +966,8 @@ function render(){
   var tabs=[['items','🏷️','Items'],['cal','📅','Calendar'],['bingo','🎱','Bingo']];
   var h='<div class="topbar"><div class="brand">Spotted<small>'+APP_VERSION+'</small></div><div class="spacer"></div>'+
     '<button class="me-pill" onclick="cycleMe()" title="Who is spotting on this phone">'+pdot(me.id)+esc(me.name)+'</button>'+
-    '<span class="sync-dot" id="sync-dot" onclick="openSettings(\'sync\')"></span>'+
+    '<span class="sync-dot" id="sync-dot" onclick="syncTap()"></span>'+
+    '<button class="icon-btn" title="Light / dark" onclick="toggleTheme()">◐</button>'+
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
   h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():viewItems())+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
@@ -1128,7 +1156,9 @@ function studioRun(kind){
       // product shots work best from the untouched photo
       p=new Promise(function(res){studioOrig(res);}).then(function(o){studioBusy('Starting…');return aiProductShot(o,productPrompt($('im-name')?$('im-name').value:IM.f.name,IM.f.cat),studioBusy);}).then(function(d){return[d,'AI shot'];});
     }
-    p.then(function(r){IM.busy=null;studioAdd(r[0],r[1]);}).catch(function(e){IM.busy=null;rItem();alert('⚠️ '+(e.message||e));});
+    p.then(function(r){IM.busy=null;studioAdd(r[0],r[1]);}).catch(function(e){IM.busy=null;rItem();
+      if(e&&e.friendly){if(confirm('⚠️ '+e.friendly+'\n\nOK = send the photo + prompt to the Gemini app instead (free)\nCancel = close'))studioShare();return;}
+      alert('⚠️ '+(e.message||e));});
   });
 }
 function studioTouch(){_imCap();studioCur(function(src){if(src)openTouchUp(src,function(d){studioAdd(d,'Touch-up');});});}
@@ -1221,52 +1251,115 @@ function delSighting(){if(!confirm('Delete this sighting?'))return;var s=S.sight
   del('sightings',SM.f.id);closeModal(2);if(IM)rItem();render();}
 
 // ════════════ PLACES ════════════
+// Search order: your Spotted places + Decade Journal places (instant) → Google Places (if key) → Photon → Nominatim
 var PP=null;
+function djStore(){try{return JSON.parse(localStorage.getItem('bujo3')||'null')||{};}catch(e){return{};}}
+function gKey(){return L.gPlacesKey||djStore().gPlacesKey||'';}
+function djPlaces(){return(djStore().places||[]).filter(function(p){return p&&p.name&&p.address!=='Online';});}
 function openPlacePicker(cb){
-  PP={cb:cb,results:null,q:''};rPlaces();
+  PP={cb:cb,results:null,local:[],q:'',loading:false,loc:L.lastLoc||null};rPlaces();
   setTimeout(function(){var q=$('pp-q');if(q)q.focus();},80);
 }
 function rPlaces(){
-  var used={};vals(S.sightings).forEach(function(s){if(s.place)used[s.place]=(used[s.place]||0)+1;});
-  var recent=vals(S.places).sort(function(a,b){return(used[b.id]||0)-(used[a.id]||0)||(b.u||0)-(a.u||0);});
   var h='<div class="mo-h"><h3>📍 Where?</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
-  h+='<div class="row"><input class="m-in" id="pp-q" placeholder="Store, mall, park, city…" value="'+esc(PP.q)+'" onkeydown="if(event.key===\'Enter\')ppSearch()"><button class="btn btn-p" onclick="ppSearch()">🔍</button></div>';
+  h+='<div class="row"><input class="m-in" id="pp-q" placeholder="Store, mall, park, city…" value="'+esc(PP.q)+'" autocomplete="off" oninput="ppType(this.value)" onkeydown="if(event.key===\'Enter\')ppSearch()"><button class="btn btn-p" onclick="ppSearch()">🔍</button></div>';
   h+='<div class="row" style="margin-top:6px"><button class="btn btn-s" style="flex:1" onclick="ppNear()">📍 Near me</button><button class="btn btn-s" style="flex:1" onclick="ppCustom()">✍️ Use typed name</button></div>';
-  if(PP.results){h+='<div class="m-lbl">Results</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address)+'</div></div></div>';}).join(''):'<div class="hint">No results.</div>';}
-  if(recent.length){h+='<div class="m-lbl">Your places</div>'+recent.slice(0,40).map(function(p){return'<div class="li"><div class="grow" onclick="ppChoose(\''+p.id+'\')"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+(used[p.id]?' · '+used[p.id]+'×':'')+'</div></div><button class="btn btn-g btn-sm" onclick="ppDelete(\''+p.id+'\')">✕</button></div>';}).join('');}
-  h+='</div>';
+  h+='<div class="hint" style="margin-top:4px">'+(gKey()?'Searching with Google Places'+(L.gPlacesKey?'':' (key from Decade Journal)'):'Free map search (OpenStreetMap). Add a Google Places key in ⚙️ Settings for much better store results.')+(PP.loc?' · near your last location':'')+'</div>';
+  h+='<div id="pp-res">'+ppResHTML()+'</div></div>';
   openModal(h,3);
 }
+function ppResHTML(){
+  var h='';
+  if(PP.local.length)h+='<div class="m-lbl">Saved places</div>'+PP.local.map(function(r,i){return'<div class="li" onclick="ppChooseLocal('+i+')"><div class="thumb">'+(r.dj?'📓':'⭐')+'</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dj?' · from Decade Journal':'')+'</div></div></div>';}).join('');
+  if(PP.loading)h+='<div class="m-lbl">Searching…</div><div class="spin" style="margin:8px auto"></div>';
+  else if(PP.results){h+='<div class="m-lbl">'+(PP.src||'Results')+'</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dist!=null?' · '+r.dist:'')+'</div></div></div>';}).join(''):'<div class="hint" style="padding:6px 0">No map results — tap ✍️ Use typed name to save it as is.</div>';}
+  if(!PP.q&&!PP.results){
+    var used={};vals(S.sightings).forEach(function(x){if(x.place)used[x.place]=(used[x.place]||0)+1;});
+    var recent=vals(S.places).sort(function(a,b){return(used[b.id]||0)-(used[a.id]||0)||(b.u||0)-(a.u||0);});
+    if(recent.length)h+='<div class="m-lbl">Your places</div>'+recent.slice(0,40).map(function(p){return'<div class="li"><div class="grow" onclick="ppChoose(\''+p.id+'\')"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+(used[p.id]?' · '+used[p.id]+'×':'')+'</div></div><button class="btn btn-g btn-sm" onclick="ppDelete(\''+p.id+'\')">✕</button></div>';}).join('');
+    else if(djPlaces().length)h+='<div class="hint" style="margin-top:10px">Type to search your '+djPlaces().length+' Decade Journal places too.</div>';
+  }
+  return h;
+}
+function ppPaint(){var el=$('pp-res');if(el)el.innerHTML=ppResHTML();}
+function ppType(v){
+  PP.q=v;var q=v.trim().toLowerCase();
+  // instant local matches
+  var seen={},out=[];
+  vals(S.places).forEach(function(p){if(q&&p.name.toLowerCase().indexOf(q)>=0){seen[p.name.toLowerCase()+'|'+(p.address||'')]=1;out.push({id:p.id,name:p.name,address:p.address});}});
+  if(q)djPlaces().forEach(function(p){var k=p.name.toLowerCase()+'|'+(p.address||'');if(!seen[k]&&p.name.toLowerCase().indexOf(q)>=0){seen[k]=1;out.push({dj:1,name:p.name,address:p.address||'',lat:p.lat,lng:p.lng});}});
+  PP.local=out.slice(0,12);
+  if(!q){PP.results=null;PP.loading=false;}
+  ppPaint();
+  if(q.length>=3)debounce('ppsearch',ppSearch,500);
+}
 function ppChoose(id){var cb=PP.cb;closeModal(3);PP=null;cb(id);}
-function ppDelete(id){if(vals(S.sightings).some(function(s){return s.place===id;})&&!confirm('This place is used by sightings. Delete anyway?'))return;PP.q=($('pp-q')||{}).value||'';del('places',id);rPlaces();}
+function ppDelete(id){if(vals(S.sightings).some(function(x){return x.place===id;})&&!confirm('This place is used by sightings. Delete anyway?'))return;del('places',id);ppPaint();}
 function ppCustom(){var q=(($('pp-q')||{}).value||'').trim();if(!q){q=prompt('Place name:');if(!q)return;}
   var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===q.toLowerCase();});if(ex)return ppChoose(ex.id);
-  var p=put('places',{id:'pl_'+gid(),name:q,address:'',lat:null,lng:null});ppChoose(p.id);}
+  var p=put('places',{id:'pl_'+gid(),name:q,address:'',lat:PP.loc?PP.loc.lat:null,lng:PP.loc?PP.loc.lng:null});ppChoose(p.id);}
+function ppChooseLocal(i){var r=PP.local[i];if(r.id)return ppChoose(r.id);ppSave(r);}
+function ppChooseResult(i){var r=PP.results[i];if(r.id)return ppChoose(r.id);ppSave(r);}
+function ppSave(r){
+  var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===r.name.toLowerCase()&&(p.address||'')===(r.address||'');});if(ex)return ppChoose(ex.id);
+  var p=put('places',{id:'pl_'+gid(),name:r.name,address:r.address||'',lat:r.lat||null,lng:r.lng||null});ppChoose(p.id);
+}
+function _miles(a,b,c,d){if(!a||!c)return null;var R=3958.8,r=Math.PI/180,x=Math.sin((c-a)*r/2),y=Math.sin((d-b)*r/2);var m=2*R*Math.asin(Math.sqrt(x*x+Math.cos(a*r)*Math.cos(c*r)*y*y));return m<0.1?Math.round(m*5280)+' ft':m.toFixed(1)+' mi';}
+function _withDist(list){if(!PP.loc)return list;list.forEach(function(r){r.dist=_miles(PP.loc.lat,PP.loc.lng,r.lat,r.lng);});return list;}
+// Google Places (New) — same API + key format as Decade Journal
+function _gSearch(q,cb){
+  var body={textQuery:q,maxResultCount:10};
+  if(PP.loc)body.locationBias={circle:{center:{latitude:PP.loc.lat,longitude:PP.loc.lng},radius:15000}};
+  fetch('https://places.googleapis.com/v1/places:searchText',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.location'},body:JSON.stringify(body)})
+  .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);cb(null,(d.places||[]).map(_gMap));}).catch(function(e){cb(e);});
+}
+function _gNearby(cb){
+  fetch('https://places.googleapis.com/v1/places:searchNearby',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.location'},
+    body:JSON.stringify({maxResultCount:15,rankPreference:'DISTANCE',locationRestriction:{circle:{center:{latitude:PP.loc.lat,longitude:PP.loc.lng},radius:300}}})})
+  .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);cb(null,(d.places||[]).map(_gMap));}).catch(function(e){cb(e);});
+}
+function _gMap(p){return{name:(p.displayName||{}).text||'',address:p.formattedAddress||'',lat:p.location?p.location.latitude:null,lng:p.location?p.location.longitude:null};}
+// Photon (OpenStreetMap, much better than Nominatim for shops/POIs, supports location bias)
+function _photonMap(f){var pr=f.properties||{},c=(f.geometry||{}).coordinates||[];
+  var addr=[pr.housenumber&&pr.street?pr.housenumber+' '+pr.street:pr.street,pr.city||pr.town||pr.village||pr.district,pr.state].filter(Boolean).join(', ');
+  return{name:pr.name||pr.street||'',address:addr,lat:c[1],lng:c[0]};}
+function _osmSearch(q,cb){
+  var u='https://photon.komoot.io/api/?limit=10&lang=en&q='+encodeURIComponent(q)+(PP.loc?'&lat='+PP.loc.lat+'&lon='+PP.loc.lng:'');
+  fetch(u).then(function(r){return r.json();}).then(function(j){var res=(j.features||[]).map(_photonMap).filter(function(r){return r.name;});
+    if(res.length)return cb(null,res);
+    var n='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q='+encodeURIComponent(q)+(PP.loc?'&viewbox='+(PP.loc.lng-0.3)+','+(PP.loc.lat+0.3)+','+(PP.loc.lng+0.3)+','+(PP.loc.lat-0.3):'');
+    return fetch(n).then(function(r){return r.json();}).then(function(j2){cb(null,j2.map(_nomName));});
+  }).catch(function(e){cb(e);});
+}
 function _nomName(r){var a=r.address||{};var nm=r.name||a.shop||a.amenity||a.building||a.tourism||a.leisure||a.road||String(r.display_name||'').split(',')[0];
   var addr=[a.house_number&&a.road?a.house_number+' '+a.road:a.road,a.city||a.town||a.village||a.suburb,a.state].filter(Boolean).join(', ');return{name:nm,address:addr||r.display_name,lat:+r.lat,lng:+r.lon};}
-function ppSearch(near){
+function ppSearch(){
   var q=(($('pp-q')||{}).value||'').trim();PP.q=q;if(!q)return;
-  var u='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q='+encodeURIComponent(q);
-  if(PP.loc)u+='&viewbox='+(PP.loc.lng-0.15)+','+(PP.loc.lat+0.15)+','+(PP.loc.lng+0.15)+','+(PP.loc.lat-0.15);
-  fetch(u).then(function(r){return r.json();}).then(function(j){PP.results=j.map(_nomName);rPlaces();}).catch(function(e){alert('Search failed: '+e.message);});
+  var myQ=q;PP.loading=true;ppPaint();
+  var done=function(src){return function(e,res){if(!PP||PP.q!==myQ)return;
+    if(e&&src==='Google'){console.warn('Google Places failed, using OSM',e);toast('Google Places error: '+(e.message||e)+' — using free map search',4000);return _osmSearch(myQ,done('Map results'));}
+    PP.loading=false;PP.src=src==='Google'?'Google results':'Map results';PP.results=e?[]:_withDist(res);if(e)toast('Search failed: '+(e.message||e));ppPaint();};};
+  if(gKey())_gSearch(q,done('Google'));else _osmSearch(q,done('Map results'));
 }
 function ppNear(){
   if(!navigator.geolocation)return alert('No GPS available');
   toast('Getting location…');
   navigator.geolocation.getCurrentPosition(function(pos){
-    var la=pos.coords.latitude,lo=pos.coords.longitude;PP.loc={lat:la,lng:lo};
-    var q=(($('pp-q')||{}).value||'').trim();
-    if(q)return ppSearch();
-    Promise.all([18,16].map(function(z){return fetch('https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom='+z+'&lat='+la+'&lon='+lo).then(function(r){return r.json();}).catch(function(){return null;});}))
-    .then(function(rs){var seen={};PP.results=rs.filter(Boolean).map(_nomName).filter(function(r){if(seen[r.name])return false;seen[r.name]=1;return true;});
-      // nearest saved places first
-      vals(S.places).filter(function(p){return p.lat&&Math.abs(p.lat-la)<0.01&&Math.abs(p.lng-lo)<0.01;}).forEach(function(p){PP.results.unshift({name:p.name,address:p.address+' (saved)',lat:p.lat,lng:p.lng,id:p.id});});
-      rPlaces();toast('Tip: type a store name then 🔍 to search around you',3500);});
+    var la=pos.coords.latitude,lo=pos.coords.longitude;PP.loc={lat:la,lng:lo};L.lastLoc={lat:la,lng:lo};svL();
+    if((($('pp-q')||{}).value||'').trim())return ppSearch();
+    PP.loading=true;PP.q='';ppPaint();
+    var finish=function(list,src){
+      vals(S.places).filter(function(p){return p.lat&&Math.abs(p.lat-la)<0.005&&Math.abs(p.lng-lo)<0.005;}).forEach(function(p){list.unshift({id:p.id,name:p.name,address:(p.address||'')+' (saved)',lat:p.lat,lng:p.lng});});
+      PP.loading=false;PP.src=src;PP.results=_withDist(list);ppPaint();
+    };
+    if(gKey())_gNearby(function(e,res){if(!e&&res.length)return finish(res,'Nearby (Google)');osmNear();});else osmNear();
+    function osmNear(){
+      fetch('https://photon.komoot.io/reverse?limit=10&radius=0.3&lat='+la+'&lon='+lo).then(function(r){return r.json();})
+      .then(function(j){var seen={};finish((j.features||[]).map(_photonMap).filter(function(r){if(!r.name||seen[r.name])return false;seen[r.name]=1;return true;}),'Nearby');})
+      .catch(function(){finish([],'Nearby');});
+    }
   },function(e){alert('Location error: '+e.message);},{enableHighAccuracy:true,timeout:12000});
 }
-function ppChooseResult(i){var r=PP.results[i];if(r.id)return ppChoose(r.id);
-  var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===r.name.toLowerCase()&&(p.address||'')===(r.address||'');});if(ex)return ppChoose(ex.id);
-  var p=put('places',{id:'pl_'+gid(),name:r.name,address:r.address,lat:r.lat,lng:r.lng});ppChoose(p.id);}
 
 // ════════════ CALENDAR TAB ════════════
 function viewCal(){
@@ -1319,6 +1412,14 @@ function rPicker(){
   h+=list.length?'<div class="pick-grid">'+list.map(function(it){var c=cat(it.cat);return'<div class="pick" onclick="var cb=IPK.cb;closeModal(2);cb(\''+it.id+'\')">'+(it.img?imgHTML(it.img):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div>'+esc(it.name)+'</div></div>';}).join('')+'</div>':'<div class="empty" style="padding:20px">No items here yet.</div>';
   h+='</div>';
   openModal(h,2);
+}
+
+function toggleTheme(){var cur=document.documentElement.getAttribute('data-theme');L.theme=cur==='dark'?'light':'dark';svL();applyTheme();toast(L.theme==='dark'?'🌙 Dark mode':'☀️ Light mode',1200);}
+// Same as Decade Journal: tap the sync indicator to pause / resume
+function syncTap(){
+  if(!FB.connected)return openSettings('sync');
+  if(FB.err&&!FB.paused){FB.err='';fbScheduleWrite();fbPumpImages();return syncBadge();}
+  fbTogglePause();toast(FB.paused?'⏸ Sync paused — changes stay on this phone':'▶ Sync resumed — pushing changes',2200);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1567,6 +1668,13 @@ function openSettings(sec){
       '<div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="fbConnectForm()">Connect</button><button class="btn btn-s" onclick="importFile()">📂 Import settings file</button></div>';
   }
   h+='</div>';
+  // places
+  var dj=djStore();
+  h+='<div class="sec"><h4>📍 Place search</h4><div class="hint">Uses a Google Places API key (the same one Decade Journal uses). Without one, it falls back to free OpenStreetMap search, which misses a lot of stores.</div>'+
+    '<input class="m-in" type="password" placeholder="Google Places API key" value="'+esc(L.gPlacesKey||'')+'" onchange="L.gPlacesKey=this.value.trim();svL();toast(\'Saved\')" style="margin-top:8px">'+
+    (dj.gPlacesKey&&!L.gPlacesKey?'<div class="hint" style="margin-top:4px">✅ Using the key from Decade Journal on this phone automatically.</div>':'')+
+    '<div class="row wrap" style="margin-top:8px">'+(dj.gPlacesKey&&dj.gPlacesKey!==L.gPlacesKey?'<button class="btn btn-s btn-sm" onclick="L.gPlacesKey=djStore().gPlacesKey;svL();openSettings()">Copy key from Decade Journal</button>':'')+
+    (djPlaces().length?'<button class="btn btn-s btn-sm" onclick="importDJPlacesLocal()">Import '+djPlaces().length+' Decade Journal places</button>':'')+'</div></div>';
   // AI
   h+='<div class="sec" id="sec-ai"><h4>🪄 AI product shots</h4><div class="hint">Your photo is sent straight from this phone to the provider you pick. Keys are stored on this device'+(L.syncKeys?' and synced to your room':'')+'.</div>';
   h+='<div class="seg" style="margin-top:8px"><button class="'+(L.aiProvider!=='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'gemini\')">Google Gemini</button><button class="'+(L.aiProvider==='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'openai\')">OpenAI</button></div>';
@@ -1591,6 +1699,8 @@ function openSettings(sec){
     '<div class="seg">'+[['','Auto'],['light','Light'],['dark','Dark']].map(function(o){return'<button class="'+(L.theme===o[0]?'on':'')+'" onclick="L.theme=\''+o[0]+'\';svL();applyTheme();openSettings()">'+o[1]+'</button>';}).join('')+'</div>'+
     '<div class="row" style="margin-top:8px"><button class="btn btn-s btn-sm" onclick="resetStickers();toast(\'Stickers will regenerate\')">↻ Regenerate stickers</button></div></div>';
   // data
+  h+='<div class="sec"><h4>🔑 Save settings</h4><div class="hint">Your keys are kept on this phone automatically (with a second copy in case Chrome clears site data). For a copy that survives anything — or to set up another phone — save a settings file.</div>'+
+    '<div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="exportSettings()">⬇ Save settings file</button><button class="btn btn-s" style="flex:1" onclick="importFile()">📂 Load settings file</button></div></div>';
   h+='<div class="sec"><h4>💾 Backup to a real file</h4><div class="hint">'+nI+' items · '+nS+' sightings · '+Object.keys(S.cards).length+' cards · '+Object.keys(S.places).length+' places. Saves to Downloads — doesn\'t rely on browser storage.</div>'+
     '<div class="row wrap" style="margin-top:8px"><button class="btn btn-p" onclick="exportBackup(true)">⬇ Full backup (with photos)</button><button class="btn btn-s" onclick="exportBackup(false)">⬇ Data only</button><button class="btn btn-s" onclick="importFile()">📂 Import…</button></div>'+
     '<div class="hint" style="margin-top:6px">Import accepts a Spotted backup, Decade Journal settings (Firebase), or a Decade Journal backup (people + places).</div></div>';
@@ -1621,7 +1731,8 @@ function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-co
 (function boot(){
   applyTheme();
   ld();
-  var start=function(){
+  var start=function(){restoreLocalSettings(function(){applyTheme();start2();});};
+  var start2=function(){
     seedDefaults();adoptSyncedKeys();render();
     var cfg=fbCfg(),room=fbRoom();
     if(cfg&&room&&localStorage.getItem('ib_fb_room'))fbInit(cfg,room);
@@ -1639,6 +1750,12 @@ function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-co
   // re-adopt keys after sync delivers meta
   setInterval(adoptSyncedKeys,10000);
 })();
+
+function importDJPlacesLocal(){
+  var n=0,t=now();djPlaces().forEach(function(p){if(vals(S.places).some(function(x){return x.name.toLowerCase()===p.name.toLowerCase()&&(x.address||'')===(p.address||'');}))return;
+    var id='pl_'+gid();S.places[id]={id:id,name:p.name,address:p.address||'',lat:p.lat||null,lng:p.lng||null,u:t};dirty('places',id);n++;});
+  sv();toast(n+' places imported');openSettings();
+}
 </script>
 </body>
 </html>
