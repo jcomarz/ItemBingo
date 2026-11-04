@@ -124,6 +124,21 @@ textarea.m-in{min-height:64px;resize:vertical}
 /* multi-select */
 .inv-card.sel{outline:3px solid var(--accent1);outline-offset:-3px}
 .sticker .inv-card.sel{outline-offset:2px;border-radius:12px}
+.istrip{display:flex;gap:6px;overflow-x:auto;margin-top:6px;padding-bottom:2px;scrollbar-width:none}
+.istrip img{height:84px;width:84px;flex-shrink:0;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--paperGrid)}
+/* library / find */
+.trf{border-top:1px solid var(--paperGrid)}
+.trh{display:flex;align-items:center;gap:6px;padding:8px 0;cursor:pointer;font-size:13px}
+.trh>span:first-child{width:12px;color:var(--inkFaint)}
+.trsum{flex:1;min-width:0;color:var(--inkFaint);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.ref-car{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.ref-car img{flex:0 0 100%;min-width:0;width:100%;max-width:100%;height:44vh;object-fit:contain;background:#fff;border-radius:12px;scroll-snap-align:center}
+.ref-thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.ref-thumbs .rt{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;background:#fff;border:1px solid var(--paperGrid)}
+.ref-thumbs .rt img{width:100%;height:100%;object-fit:contain}
+.ref-thumbs .rt button{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:0}
+.sb-pal{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;margin:8px 0}
+.sb-pal button,.sb-pal label{aspect-ratio:1/1;border-radius:50%;border:2px solid #8886;display:block;position:relative;overflow:hidden}
 .selbox{position:absolute;top:6px;right:6px;z-index:4;width:24px;height:24px;border-radius:50%;border:2px solid var(--accent1);background:var(--paper);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
 .inv-card.sel .selbox{background:var(--accent1);color:var(--paper)}
 .selbar{position:fixed;left:8px;right:8px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:62;display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:14px;background:var(--paper);border:1px solid var(--paperGrid);box-shadow:0 6px 20px rgba(0,0,0,.25)}
@@ -248,8 +263,8 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.5';
-var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
+var APP_VERSION='v1.7';
+var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
@@ -272,7 +287,7 @@ var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all
   bgModel:'isnet_fp16',autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
 function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
-var SETTING_KEYS=['claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+var SETTING_KEYS=['serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
 // If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
 function restoreLocalSettings(cb){
   if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
@@ -300,7 +315,7 @@ var DEFAULT_PROMPT='Turn this photo into a clean e-commerce product photo of the
 '- Clothing (shirts, tees, hoodies, jackets, sweaters, pants, jeans, shorts, dresses): show it laid perfectly flat, front-facing, neatly smoothed out in its natural garment shape, sleeves/legs straight and symmetrical, like a flat-lay on an online store product page.\n'+
 '- Shoes: clean side profile of a single shoe (or the pair if both are visible). Bags, toys, gadgets and other objects: straight-on 3/4 product angle.\n'+
 '- Square 1:1 framing with generous white margin around the item. No text, watermark or props.';
-var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{},stamps:{},folders:{}};
+var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{},stamps:{},folders:{},refs:{}};
 var ST_KEY='ib_state';
 function ld(){
   try{var d=JSON.parse(localStorage.getItem(ST_KEY)||'null');if(d)COLLS.forEach(function(c){if(d[c])S[c]=d[c];});S._ts=d&&d._ts||0;}catch(e){console.warn('ld',e);}
@@ -979,15 +994,15 @@ function render(){
   _renderPending=false;
   var me=person(L.me)||peopleList()[0]||{name:'?',color:'#999'};
   var sc=document.querySelector('.content');var y=window.scrollY;
-  var tabs=[['items','🏷️','Items'],['cal','📅','Calendar'],['bingo','🎱','Bingo']];
+  var tabs=[['items','🏷️','Items'],['lib','📚','Library'],['cal','📅','Calendar'],['bingo','🎱','Bingo']];
   var h='<div class="topbar"><div class="brand">Spotted<small>'+APP_VERSION+'</small></div><div class="spacer"></div>'+
     '<button class="me-pill" onclick="cycleMe()" title="Who is spotting on this phone">'+pdot(me.id)+esc(me.name)+'</button>'+
     '<span class="sync-dot" id="sync-dot" onclick="syncTap()"></span>'+
     '<button class="icon-btn" title="Light / dark" onclick="toggleTheme()">◐</button>'+
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
-  h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():viewItems())+'</div>';
+  h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():L.tab==='lib'?viewLibrary():viewItems())+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
-  if(!SEL)h+='<button class="fab fab2" onclick="openIdentify()" title="Describe something you couldn\'t photograph">🔎</button><button class="fab" onclick="quickSpot()">📷 Spot</button>';
+  if(!SEL)h+='<button class="fab fab2" onclick="openFind()" title="Find something you couldn\'t photograph">🔎</button><button class="fab" onclick="quickSpot()">📷 Spot</button>';
   $('app').innerHTML=h;
   hydrate($('app'));syncBadge();
   window.scrollTo(0,y);
@@ -1109,7 +1124,7 @@ function rItem(){
   if(!IM)return;_imCap();
   var f=IM.f,isNew=IM.isNew;
   var h='<div class="mo-h"><h3>'+(isNew?'📷 New item':esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
-  if(!isNew&&f.mystery)h+='<div class="sec" style="margin:0 0 10px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 8px">'+esc(f.desc||'')+'</div><button class="btn btn-p btn-block" onclick="var id=IM.id;closeModal(1);openIdentify({itemId:id})">🔎 Identify it now</button></div>';
+  if(!isNew&&f.mystery)h+='<div class="sec" style="margin:0 0 10px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 8px">'+esc(f.desc||'')+'</div><button class="btn btn-p btn-block" onclick="var id=IM.id;closeModal(1);openFind({itemId:id})">🔎 Find it in my library</button></div>';
   h+=studioHTML();
   h+='<div class="m-lbl">Name</div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
   h+='<div class="m-lbl">Category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){
@@ -1134,6 +1149,9 @@ function rItem(){
     h+='<div class="row" style="gap:6px"><button class="btn btn-p" style="flex:1" onclick="quickSight(\''+f.id+'\')">✅ Spotted now</button><button class="btn btn-s" onclick="openSighting(null,{item:\''+f.id+'\'})">＋ With details</button></div>';
     h+='<div style="margin-top:6px">'+(ss.length?ss.map(sightRow).join(''):'<div class="hint" style="padding:8px 0">Not spotted yet.</div>')+'</div>';
   }
+  if(!isNew){var rf=f.ref&&S.refs[f.ref];
+    h+='<div class="m-lbl">📚 Library</div>'+(rf?'<div class="row"><button class="btn btn-s" style="flex:1;justify-content:flex-start" onclick="openRefView(\''+rf.id+'\')">📚 '+esc(rf.name)+'</button><button class="btn btn-g btn-sm" onclick="_imCap();delete IM.f.ref;rItem()">Unlink</button></div>':
+      '<div class="row"><button class="btn btn-s" style="flex:1" onclick="_imCap();itemToRef()">＋ Add to library</button><button class="btn btn-s" style="flex:1" onclick="_imCap();refPick(function(id){IM.f.ref=id;rItem();})">🔗 Link entry</button></div>');}
   h+='<div class="m-lbl">Notes</div><textarea class="m-in" id="im-notes" placeholder="Details, size, colorway, story…">'+esc(f.notes||'')+'</textarea>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveItem()">'+(isNew?'Save item':'Save')+'</button></div>';
   var keepScroll=$('mo-l1')&&$('mo-l1').querySelector('.mo-b');var st=keepScroll?keepScroll.scrollTop:0;
@@ -1483,6 +1501,13 @@ function syncTap(){
   if(FB.err&&!FB.paused){FB.err='';fbScheduleWrite();fbPumpImages();return syncBadge();}
   fbTogglePause();toast(FB.paused?'⏸ Sync paused — changes stay on this phone':'▶ Sync resumed — pushing changes',2200);
 }
+
+function itemToRef(){var f=IM.f;var ex=vals(S.refs).find(function(r){return r.name.toLowerCase()===f.name.toLowerCase();});if(ex){IM.f.ref=ex.id;rItem();return toast('Linked to existing library entry');}
+  var r=put('refs',{id:'rf_'+gid(),name:f.name.replace(/^❓\s*/,''),cat:f.cat,traits:clone(f.traits||{}),imgs:f.img?[f.img]:[],notes:'',created:now()});IM.f.ref=r.id;rItem();openRefEditor(r.id);}
+var _rpCb=null;
+function refPick(cb){_rpCb=cb;var rs=vals(S.refs).sort(function(a,b){return a.name.localeCompare(b.name);});
+  var h='<div class="mo-h"><h3>Link to library</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">'+(rs.length?'<div class="pick-grid">'+rs.map(function(r){var k=refThumb(r);return'<div class="pick" onclick="closeModal(2);_rpCb(\''+r.id+'\')">'+(k?imgHTML(k):'<div class="thumb">📚</div>')+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div>':'<div class="empty">Library is empty.</div>')+'</div>';
+  openModal(h,2);}
 
 // ════════════════════════════════════════════════════════════════
 //  BINGO
@@ -1844,7 +1869,10 @@ function openSettings(sec){
     (djk&&!L.claudeKey?'<div class="hint" style="margin-top:3px">✅ Using the Claude key from Decade Journal on this phone.</div>':'')+
     '<div class="row" style="margin-top:6px"><span class="hint" style="width:92px">Claude model</span><input class="m-in" list="cl-models" value="'+esc(L.claudeModel||'claude-sonnet-5-5')+'" onchange="L.claudeModel=this.value.trim();svL()"></div><datalist id="cl-models"><option value="claude-sonnet-5-5"></option><option value="claude-haiku-5-5"></option><option value="claude-opus-5-5"></option></datalist>'+
     '<div class="row" style="margin-top:6px"><span class="hint" style="width:92px">Gemini model</span><input class="m-in" value="'+esc(L.geminiTextModel||'gemini-flash-latest')+'" onchange="L.geminiTextModel=this.value.trim();svL()"></div>'+
-    '<div class="hint" style="margin-top:3px">Gemini uses the key from 🪄 below.</div></div>';
+    '<div class="hint" style="margin-top:3px">Gemini uses the key from 🪄 below.</div>'+
+    '<div class="m-lbl">🖼 Picture search (Serper.dev)</div><input class="m-in" type="password" placeholder="Serper API key — free credits at serper.dev" value="'+esc(L.serperKey||'')+'" onchange="L.serperKey=this.value.trim();svL();toast(\'Saved\')">'+
+    '<div class="hint" style="margin-top:3px">Shows real product photos next to every guess and lets you scroll pictures instead of reading names.</div>'+
+    '<input class="m-in" placeholder="CORS proxy prefix (only if picture search is blocked)" value="'+esc(L.corsProxy||'')+'" onchange="L.corsProxy=this.value.trim();svL()" style="margin-top:6px;font-size:12px"></div>';
   h+='<div class="sec" id="sec-ai"><h4>🪄 AI product shots</h4><div class="hint">Your photo is sent straight from this phone to the provider you pick. Keys are stored on this device'+(L.syncKeys?' and synced to your room':'')+'.</div>';
   h+='<div class="seg" style="margin-top:8px"><button class="'+(L.aiProvider!=='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'gemini\')">Google Gemini</button><button class="'+(L.aiProvider==='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'openai\')">OpenAI</button></div>';
   if(L.aiProvider!=='openai'){
@@ -2098,7 +2126,7 @@ function rID(){
   var h='<div class="mo-h"><h3>🔎 '+(ID.itemId?'Identify mystery':'Describe what you saw')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   if(ID.results){h+=idResultsHTML();}
   else{
-    h+='<div class="hint">No photo? Tap what you remember — AI turns it into exact model names you can check.</div>';
+    h+='<div class="hint">No photo? Tap what you remember. <b>🖼 Just show me pictures</b> lets you scroll; <b>🤖 Identify</b> also works out the model family and shows every version with pictures.</div>';
     h+='<div class="m-lbl">What kind of thing?</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){return'<button class="chip'+(ID.cat===c.id?' on':'')+'" onclick="_idCap();ID.cat=\''+c.id+'\';rID()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
     var brands=ID_BRANDS[k==='bottom'?'top':k]||[];
     if(brands.length)h+='<div class="m-lbl">Brand? <span class="r hint">skip if unsure</span></div><div class="chips" style="flex-wrap:wrap">'+brands.map(function(b){return'<button class="chip'+(ID.brands.indexOf(b)>=0?' on':'')+'" onclick="_idCap();_idToggle(ID.brands,\''+jsq(b)+'\');rID()">'+esc(b)+'</button>';}).join('')+'</div>';
@@ -2108,6 +2136,7 @@ function rID(){
     h+='<div class="m-lbl">Anything else <span class="r hint">🎤 use your keyboard mic</span></div><textarea class="m-in" id="id-text" placeholder="e.g. Jordan with a strap, grey furry patch on the tongue, red and black, kind of chunky">'+esc(ID.text)+'</textarea>';
     h+='<div class="m-lbl">Far-away / blurry shot <span class="r hint">optional — helps a lot</span></div><div class="row">'+(ID.photo?'<img src="'+ID.photo+'" class="thumb" style="width:56px;height:56px;object-fit:cover">':'')+
       '<button class="btn btn-s btn-sm" onclick="_idCap();pickPhoto(\'cam\',function(d){ID.photo=d;rID();})">📷</button><button class="btn btn-s btn-sm" onclick="_idCap();pickPhoto(\'gal\',function(d){ID.photo=d;rID();})">🖼</button>'+(ID.photo?'<button class="btn btn-g btn-sm" onclick="ID.photo=null;rID()">✕</button>':'')+'</div>';
+    h+='<div class="row" style="margin-top:10px"><button class="btn btn-s" style="flex:1" onclick="_idCap();openGallery(idBrowseQuery())">🖼 Just show me pictures</button>'+(ID.photo?'<button class="btn btn-s" style="flex:1" onclick="idLens()">🔍 Google Lens</button>':'')+'</div>';
     if(!ID.itemId){h+='<div class="m-lbl">Where</div>'+placeChip(ID.place,'_idCap();openPlacePicker(function(id){ID.place=id;rID();})','_idCap();ID.place=\'\';rID()');}
     if(!prov)h+='<div class="sec" style="border-color:var(--warn)"><b>Needs an AI key.</b> <span class="hint">Add a Claude key (or reuse Decade Journal\'s) or a Gemini key in ⚙️ → 🔎 Identify. Gemini\'s text models have a free tier. You can still save it as a mystery now.</span></div>';
   }
@@ -2115,7 +2144,7 @@ function rID(){
   if(ID.results)h+='<button class="btn btn-s" onclick="ID.results=null;ID.question=null;rID()">‹ Edit description</button><button class="btn btn-s" onclick="idSaveMystery()">❓ Save as mystery</button>';
   else h+=(ID.itemId?'':'<button class="btn btn-s" onclick="_idCap();idSaveMystery()">❓ Save for later</button>')+'<button class="btn btn-p" '+(prov?'':'disabled')+' onclick="_idCap();idRun()">🤖 Identify</button>';
   h+='</div>';
-  openModal(h,1);
+  openModal(h,1);fillStrips($('mo-l1'));
 }
 function idResultsHTML(){
   var h='';
@@ -2124,11 +2153,12 @@ function idResultsHTML(){
   if(ID.family){
     var fam=ID.family;
     h+='<div class="sec" style="margin-top:0;border-color:var(--accent1)"><div class="row"><b style="flex:1">🧬 '+esc(fam.name||'Same family')+'</b>'+(ID.drill?'<button class="btn btn-g btn-sm" onclick="ID.drill=\'\';idRun()">✕ '+esc(ID.drill)+'</button>':'')+'</div>'+
-      '<div class="hint" style="margin:2px 0 6px">Every version in this line. Peek with 🖼, then tap the one you saw — results narrow to that model\'s colorways.</div>'+
+      '<div class="hint" style="margin:2px 0 6px">Scroll the pictures. Tap a picture if it\'s exactly it, or <b>This</b> to see only that model\'s colorways.</div>'+
       (fam.members||[]).map(function(m,i){var on=ID.drill===m.name;
-        return'<div class="li" style="padding:7px 0"><div class="grow"><div class="t">'+(on?'✅ ':'')+esc(m.name)+(m.years?' <span class="hint">'+esc(m.years)+'</span>':'')+'</div>'+(m.tell?'<div class="s" style="white-space:normal">'+esc(m.tell)+'</div>':'')+'</div>'+
-        '<a class="btn btn-s btn-sm" style="text-decoration:none;flex-shrink:0" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(m.name)+'" target="_blank" rel="noopener">🖼</a>'+
-        '<button class="btn '+(on?'btn-p':'btn-s')+' btn-sm" style="flex-shrink:0" onclick="idDrill('+i+')">This</button></div>';}).join('')+'</div>';
+        return'<div style="padding:7px 0;border-top:1px solid var(--paperGrid)"><div class="row"><div class="grow" style="flex:1;min-width:0"><div class="t" style="font-weight:600">'+(on?'✅ ':'')+esc(m.name)+(m.years?' <span class="hint">'+esc(m.years)+'</span>':'')+'</div>'+(m.tell?'<div class="hint">'+esc(m.tell)+'</div>':'')+'</div>'+
+        (imgSearchKey()?'':'<a class="btn btn-s btn-sm" style="text-decoration:none;flex-shrink:0" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(m.name)+'" target="_blank" rel="noopener">🖼</a>')+
+        '<button class="btn '+(on?'btn-p':'btn-s')+' btn-sm" style="flex-shrink:0" onclick="idDrill('+i+')">This</button></div>'+
+        (imgSearchKey()?'<div class="istrip" data-istrip="'+esc(m.name+' '+ID.colors.join(' '))+'" data-name="'+esc(m.name)+'" data-n="4"></div>':'')+'</div>';}).join('')+'</div>';
   }
   if(ID.drill)h+='<div class="m-lbl">'+esc(ID.drill)+' — colorways that fit</div>';
   if(!r.length)h+='<div class="empty" style="padding:16px">No confident matches. Try adding a detail or a color.</div>';
@@ -2140,7 +2170,8 @@ function idResultsHTML(){
       '<span class="chip" style="flex-shrink:0;'+(conf>=60?'background:#16a34a;color:#fff;border-color:#16a34a':'')+'">'+conf+'%</span></div>'+
       (c.why?'<div style="font-size:12px;margin-top:4px">'+esc(c.why)+'</div>':'')+
       (c.tells?'<div class="hint" style="margin-top:3px">👀 Check: '+esc(c.tells)+'</div>':'')+
-      '<div class="row" style="margin-top:8px"><a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+q+'" target="_blank" rel="noopener">🖼 See photos</a>'+
+      (imgSearchKey()?'<div class="istrip" data-istrip="'+esc(c.search||c.name)+'" data-name="'+esc(c.name)+'" data-n="6"></div>':'')+
+      '<div class="row" style="margin-top:8px">'+(imgSearchKey()?'<button class="btn btn-s btn-sm" style="flex:1" onclick="openGallery(\''+esc(jsq(c.search||c.name))+'\')">🖼 More pictures</button>':'<a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+q+'" target="_blank" rel="noopener">🖼 See photos</a>')+
       '<button class="btn btn-p btn-sm" style="flex:1" onclick="idPick('+i+')">✓ That\'s it</button></div></div>';}).join('');
   if(ID.question){
     h+='<div class="sec" style="margin-top:12px;border-color:var(--accent1)"><b>🤔 '+esc(ID.question.q)+'</b><div class="chips" style="flex-wrap:wrap;margin-top:6px">'+
@@ -2162,6 +2193,7 @@ function idRun(){
     'Work like an expert reseller, in two levels: (1) the MODEL FAMILY / LINE, then (2) the exact model version + colorway. '+
     'If the user names or hints at a family/line (e.g. "one of the Blasts", "Jordan with a strap", "a Dunk", "Nimbus-ish", "North Face puffer"), STAY INSIDE that family: do not substitute other lines just because they share colors. '+
     'For the most likely family, list EVERY current and recent model/version in it (e.g. ASICS Blast line = Novablast 1-5, Superblast 1-2, Megablast, Sonicblast, Dynablast 1-5, Gel-Blast FF / FF 2 / FF 3, Magic Speed if relevant; Jordan with a strap = Air Jordan 8 and its variants), each with the single most useful visual tell that separates it from its siblings (sole shape, stack height, logo placement, upper pattern, heel). '+
+    'If the description is vague (e.g. "black Nike shoes"), make the family the brand\'s most common silhouettes that fit (e.g. Dunk Low, Air Force 1, Cortez, Blazer, Air Max 90, Killshot, Court Vision…) with each one\'s tell, so the user can compare pictures. If a photo is attached, trust the photo over the words. '+
     'Candidates must be exact searchable names incl. colorway as listed on StockX/GOAT/the brand site; when unsure of the version, spread candidates across different family members in the user\'s colors rather than across other families. '+
     'Return ONLY JSON: {"family":{"name":"family/line name","members":[{"name":"exact model/version name","tell":"how to tell it apart at a glance","years":"release years"}]},'+
     '"candidates":[{"name":"exact searchable product name incl. colorway","colorway":"","year":"","confidence":0-100,"why":"one sentence linking it to their description","tells":"1-2 visible features to confirm","search":"best Google Images query"}],'+
@@ -2238,6 +2270,441 @@ function idSaveMystery(){
   var it={id:'it_'+gid(),name:'❓ '+(short||'Mystery item'),cat:ID.cat,mystery:true,desc:desc,notes:desc,folders:[],created:now(),img:''};
   var finish=function(){put('items',it);addSighting({item:it.id,date:ID.date,place:ID.place,note:'unidentified'});if(ID.place){L.lastPlace=ID.place;L.lastPlaceDay=tod();svL();}closeModal(1);render();toast('❓ Saved — identify it later from the item or the ❓ filter',3500);};
   if(ID.photo)resizeData(ID.photo,900,'webp',0.85).then(function(d){it.img=imgSave(d);finish();});else finish();
+}
+
+// ════════════ VISUAL BROWSING (image search) ════════════
+// Uses Serper.dev's Google Images endpoint (free starter credits, key from serper.dev).
+var _isCache={};
+function imgSearchKey(){return L.serperKey||'';}
+function imgSearch(q,page,cb){
+  var k=q+'|'+(page||1);if(_isCache[k])return cb(null,_isCache[k]);
+  if(!imgSearchKey())return cb(new Error('NOKEY'));
+  var url='https://google.serper.dev/images';if(L.corsProxy)url=L.corsProxy+encodeURIComponent(url);
+  fetch(url,{method:'POST',headers:{'X-API-KEY':imgSearchKey(),'Content-Type':'application/json'},body:JSON.stringify({q:q,num:20,page:page||1,gl:'us'})})
+  .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message||('Image search HTTP '+r.status));return j;});})
+  .then(function(j){var out=(j.images||[]).map(function(x){return{title:x.title||'',img:x.imageUrl,thumb:x.thumbnailUrl||x.imageUrl,domain:x.domain||x.source||'',link:x.link||''};}).filter(function(x){return x.thumb;});
+    _isCache[k]=out;cb(null,out);})
+  .catch(function(e){if(e instanceof TypeError)e=new Error('The image search was blocked by the browser (network/CORS). Check the key, or set a CORS proxy in ⚙️ → 🔎 Identify.');cb(e);});
+}
+var _isPool={};// id -> result (for onclick)
+function _isReg(x,name){var id='r'+gid();_isPool[id]={x:x,name:name||''};return id;}
+// fill every [data-istrip] with a row of thumbnails for its query
+function fillStrips(root){
+  (root||document).querySelectorAll('[data-istrip]:not([data-f])').forEach(function(el){
+    el.setAttribute('data-f','1');var q=el.getAttribute('data-istrip'),n=+(el.getAttribute('data-n')||4),name=el.getAttribute('data-name')||'';
+    el.innerHTML='<div class="hint">loading pictures…</div>';
+    imgSearch(q,1,function(e,res){
+      if(e){el.innerHTML=e.message==='NOKEY'?'':'<div class="hint" style="color:var(--bad)">'+esc(e.message)+'</div>';return;}
+      el.innerHTML=res.slice(0,n).map(function(x){return'<img src="'+esc(x.thumb)+'" loading="lazy" referrerpolicy="no-referrer" onclick="isOpen(\''+_isReg(x,name)+'\')" onerror="this.remove()">';}).join('')||'<div class="hint">no pictures found</div>';
+    });
+  });
+}
+function cleanTitle(t){return String(t||'').split(/ [|–—-] | \| /)[0].replace(/\s+(for sale|on sale|online|shop now).*$/i,'').trim();}
+// big preview of one picture
+function isOpen(id){
+  var r=_isPool[id];if(!r)return;var x=r.x,name=r.name||cleanTitle(x.title);
+  var h='<div class="mo-h"><h3>'+esc(name||'Picture')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">'+
+    '<div class="studio-prev white" style="min-height:220px"><img src="'+esc(x.img||x.thumb)+'" referrerpolicy="no-referrer" onerror="this.src=\''+esc(x.thumb)+'\'"></div>'+
+    '<div class="hint" style="margin-top:6px">'+esc(x.title)+'<br>'+esc(x.domain)+'</div>'+
+    '<div class="m-lbl">Name it</div><input class="m-in" id="is-name" value="'+esc(name)+'">'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="var q=$(\'is-name\').value;closeModal(2);openGallery(q)">🔎 More like this</button><button class="btn btn-p" onclick="isPick(\''+id+'\')">✓ That\'s it</button></div>';
+  openModal(h,2);
+}
+function isPick(id){
+  var x=_isPool[id].x,name=($('is-name').value||'').trim()||cleanTitle(x.title);
+  var catId=ID?ID.cat:'',place=ID?ID.place:'',date=ID?ID.date:tod(),mys=ID&&ID.itemId;
+  closeModal(2);closeModal(1);
+  toast('Grabbing that picture…',2500);
+  var go=function(d){
+    if(mys&&S.items[mys]){var it=clone(S.items[mys]);it.name=name;it.mystery=false;put('items',it);openItemModal(it.id,{});if(d)studioAdd(d,'Photo',true);return;}
+    var ex=vals(S.items).find(function(i){return i.name.toLowerCase()===name.toLowerCase();});
+    if(ex){addSighting({item:ex.id,date:date,place:place});render();toast('✅ Logged another sighting of '+ex.name);return openItemModal(ex.id);}
+    openItemModal(null,{name:name,cat:catId});IM.first.place=place;IM.first.date=date;
+    if(d)studioAdd(d,'Photo',true);else rItem();
+  };
+  urlToData(x.img).catch(function(){return urlToData(x.thumb);}).then(go).catch(function(){go(null);toast('Couldn\'t download that picture — add one with 🔗 or 📋');});
+}
+// full gallery: scroll pictures for any query
+var GAL=null;
+function openGallery(q){GAL={q:q||'',pages:0,items:[],loading:false,err:''};rGallery();if(GAL.q)galMore();}
+function rGallery(){
+  var h='<div class="mo-h"><h3>🖼 Browse pictures</h3><button class="icon-btn" onclick="closeModal(1);if(ID)rID()">✕</button></div><div class="mo-b" id="gal-b">';
+  h+='<div class="row"><input class="m-in" id="gal-q" value="'+esc(GAL.q)+'" placeholder="e.g. black Nike low top leather" onkeydown="if(event.key===\'Enter\')galNew()"><button class="btn btn-p" onclick="galNew()">🔎</button></div>';
+  if(!imgSearchKey())h+='<div class="sec" style="border-color:var(--warn)"><b>Needs an image-search key.</b><div class="hint">Get a free key at <b>serper.dev</b> (free starter credits, no card) and paste it in ⚙️ → 🔎 Identify.</div></div>';
+  h+='<div class="hint" style="margin:6px 0">Scroll and tap the one you saw. Tip: add a silhouette word — dunk, force, runner, high top, puffer…</div>';
+  h+='<div class="pick-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">'+GAL.items.map(function(x){return'<div class="pick" onclick="isOpen(\''+_isReg(x)+'\')"><img src="'+esc(x.thumb)+'" loading="lazy" referrerpolicy="no-referrer" style="height:130px;background:#fff" onerror="this.parentNode.remove()"><div style="white-space:normal;height:2.4em;line-height:1.2em;overflow:hidden">'+esc(cleanTitle(x.title))+'</div></div>';}).join('')+'</div>';
+  if(GAL.err)h+='<div class="hint" style="color:var(--bad);margin-top:8px">'+esc(GAL.err)+'</div>';
+  if(GAL.loading)h+='<div class="spin" style="margin:12px auto"></div>';
+  else if(GAL.items.length)h+='<button class="btn btn-s btn-block" style="margin-top:10px" onclick="galMore()">Load more</button>';
+  h+='</div>';
+  var st=$('gal-b')?$('gal-b').scrollTop:0;openModal(h,1);var b=$('gal-b');if(b)b.scrollTop=st;
+}
+function galNew(){GAL.q=($('gal-q').value||'').trim();GAL.items=[];GAL.pages=0;GAL.err='';if(GAL.q)galMore();}
+function galMore(){if(GAL.loading)return;GAL.loading=true;rGallery();imgSearch(GAL.q,GAL.pages+1,function(e,res){GAL.loading=false;if(e)GAL.err=e.message==='NOKEY'?'':e.message;else{GAL.pages++;var seen={};GAL.items.forEach(function(x){seen[x.thumb]=1;});res.forEach(function(x){if(!seen[x.thumb])GAL.items.push(x);});}rGallery();});}
+function idBrowseQuery(){
+  var c=cat(ID.cat),k=_idKind(ID.cat);
+  return [ID.brands.join(' '),ID.colors.join(' '),ID.feats.slice(0,3).join(' '),ID.text.trim().slice(0,80),k==='shoe'?'sneakers':c?c.name:''].filter(Boolean).join(' ').split(/\s+/).filter(function(w,i,arr){return w&&arr.map(function(x){return x.toLowerCase();}).indexOf(w.toLowerCase())===i;}).join(' ');
+}
+// hand a photo to Google Lens (or any visual search app) through the Android share sheet
+function idLens(){
+  if(!ID.photo)return;resizeData(ID.photo,1400,'jpeg',0.9).then(function(j){var f=new File([dataURLToBlob(j)],'spotted.jpg',{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f]}).catch(function(){});else{downloadBlob(f,'spotted.jpg');toast('Saved — open it in Google Lens');}});
+  toast('Pick “Google Lens” / “Search image” in the share menu',3500);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  📚 REFERENCE LIBRARY + 🔎 FIND (manual, no AI needed) + 👟 SHOE MOCKUP
+//  refs: {id,name,cat,traits:{fieldId:[values]},imgs:[imgKey],mock:{…},mockImg,notes,link,created,u}
+//  Trait fields are editable per category and stored in S.meta.traits.byCat[catId]
+// ════════════════════════════════════════════════════════════════
+var TRAIT_COLORS=[['black','#111'],['white','#f5f5f5'],['grey','#9ca3af'],['red','#dc2626'],['orange','#f97316'],['yellow','#facc15'],['green','#16a34a'],['teal','#14b8a6'],['blue','#2563eb'],['navy','#1e3a8a'],['purple','#7c3aed'],['pink','#f472b6'],['brown','#7c4a1e'],['tan/cream','#e7d8b5'],['gum','#c58b4b'],['gold','#d4a017'],['silver','#c0c0c0']];
+function _defaultFields(kind){
+  var F=function(id,name,opts,type){return{id:id,name:name,opts:opts||[],type:type||'chips'};};
+  if(kind==='shoe')return[F('brand','Brand',['Nike','Jordan','Adidas','New Balance','Asics','On','Hoka','Puma','Converse','Vans','Reebok','Salomon']),
+    F('line','Line / model',[]),F('cut','Cut',['low','mid','high']),
+    F('colors','Colors',[],'color'),
+    F('upper','Upper',['smooth leather','tumbled leather','suede','nubuck','mesh','knit','canvas','patent','fuzzy','synthetic']),
+    F('sole','Sole',['flat cupsole','thin vulcanized','foam runner','chunky','visible Air','gum','translucent','speckled']),
+    F('details','Details',['overlays','perforated toe','contrast stitching','strap','big logo','small logo','heel tab','reflective','padded collar'])];
+  if(kind==='top')return[F('brand','Brand',['Nike','Adidas','Supreme','Stüssy','Carhartt','The North Face','Patagonia','Arc\'teryx','Champion','Essentials']),
+    F('type','Type',['hoodie','zip-up','crewneck','tee','jacket','puffer','fleece','windbreaker','varsity']),F('colors','Colors',[],'color'),
+    F('material','Material',['cotton','nylon','fleece','denim','leather','knit']),F('pattern','Pattern',['solid','graphic','all-over print','stripes','camo','plaid']),
+    F('logo','Logo',['big chest','small chest','back print','sleeve','none'])];
+  if(kind==='bottom')return[F('brand','Brand',[]),F('type','Type',['jeans','cargo','joggers','shorts','sweatpants','chinos']),F('colors','Colors',[],'color'),F('fit','Fit',['skinny','straight','wide','baggy','tapered']),F('details','Details',['ripped','side stripe','carpenter loop','pleats'])];
+  return[F('brand','Brand / maker',[]),F('colors','Colors',[],'color'),F('details','Details',[])];
+}
+function traitSchema(catId){
+  var m=S.meta.traits;var by=m&&m.byCat||{};
+  if(by[catId]&&by[catId].length)return by[catId];
+  return _defaultFields(_idKind(catId));
+}
+function saveSchema(catId,fields){var m=clone(S.meta.traits||{id:'traits',byCat:{}});m.id='traits';m.byCat=m.byCat||{};m.byCat[catId]=fields;put('meta',m);}
+function _colorHex(v){var c=TRAIT_COLORS.find(function(x){return x[0]===v;});return c?c[1]:'#ccc';}
+
+// ── shared trait chips (which = 'F' find | 'RE' ref editor | 'LF' library filter | 'IT' item) ──
+var _TR={};
+function trTarget(which){return which==='F'?F.traits:which==='RE'?RE.f.traits:which==='IT'?(IM.f.traits=IM.f.traits||{}):LF.traits;}
+function trRerender(which){if(which==='F')rFind();else if(which==='RE')rRef();else if(which==='IT')rItem();else render();}
+function trCat(which){return which==='F'?F.cat:which==='RE'?RE.f.cat:which==='IT'?IM.f.cat:LF.cat;}
+function traitsHTML(which,openState){
+  var catId=trCat(which),fields=traitSchema(catId),sel=trTarget(which);
+  return fields.map(function(f){
+    var vals=sel[f.id]||[],open=openState?openState[f.id]:true;
+    var head='<div class="trh" onclick="trOpen(\''+which+'\',\''+f.id+'\')"><span>'+(open?'▾':'▸')+'</span><b>'+esc(f.name)+'</b><span class="trsum">'+esc(vals.join(', '))+'</span>'+
+      '<button class="btn btn-g btn-sm" onclick="event.stopPropagation();trEdit(\''+which+'\',\''+f.id+'\')">✏️</button></div>';
+    if(!open)return'<div class="trf">'+head+'</div>';
+    var opts=f.type==='color'?TRAIT_COLORS.map(function(c){return c[0];}):f.opts.slice();
+    vals.forEach(function(v){if(opts.indexOf(v)<0)opts.push(v);});
+    var body='<div class="chips" style="flex-wrap:wrap;padding:4px 0 8px">'+opts.map(function(o){var on=vals.indexOf(o)>=0;
+      return'<button class="chip'+(on?' on':'')+'" onclick="trToggle(\''+which+'\',\''+f.id+'\',\''+esc(jsq(o))+'\')">'+(f.type==='color'?'<span style="width:12px;height:12px;border-radius:50%;background:'+_colorHex(o)+';border:1px solid #8884;display:inline-block"></span>':'')+esc(o)+'</button>';}).join('')+
+      '<button class="chip" onclick="trAddOpt(\''+which+'\',\''+f.id+'\')">＋</button></div>';
+    return'<div class="trf">'+head+body+'</div>';
+  }).join('')+'<button class="btn btn-g btn-sm" style="margin-top:4px" onclick="trAddField(\''+which+'\')">＋ Add a description field</button>';
+}
+var TR_OPEN={F:{},RE:{},LF:{},IT:{}};
+function trOpen(which,fid){var o=TR_OPEN[which];o[fid]=!o[fid];_capAll(which);trRerender(which);}
+function _capAll(which){if(which==='F')_fCap();else if(which==='RE')_reCap();else if(which==='IT')_imCap();}
+function trToggle(which,fid,v){_capAll(which);var t=trTarget(which);var a=t[fid]=t[fid]||[];var i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);if(!a.length)delete t[fid];trRerender(which);}
+function trAddOpt(which,fid){_capAll(which);var v=prompt('Add an option:');if(!v)return;v=v.trim();var catId=trCat(which),fs=clone(traitSchema(catId)),f=fs.find(function(x){return x.id===fid;});
+  if(f&&f.type!=='color'&&f.opts.indexOf(v)<0){f.opts.push(v);saveSchema(catId,fs);}
+  var t=trTarget(which);var a=t[fid]=t[fid]||[];if(a.indexOf(v)<0)a.push(v);trRerender(which);}
+function trAddField(which){_capAll(which);var n=prompt('New field name (e.g. Toe shape, Heel tab, Collab):');if(!n)return;var catId=trCat(which),fs=clone(traitSchema(catId));
+  fs.push({id:'f'+gid(),name:n.trim(),opts:[],type:'chips'});saveSchema(catId,fs);trRerender(which);}
+function trEdit(which,fid){
+  _capAll(which);var catId=trCat(which),fs=traitSchema(catId),f=fs.find(function(x){return x.id===fid;});if(!f)return;
+  var h='<div class="mo-h"><h3>✏️ '+esc(f.name)+'</h3><button class="icon-btn" onclick="closeModal(4)">✕</button></div><div class="mo-b">'+
+    '<div class="m-lbl">Field name</div><input class="m-in" id="tre-name" value="'+esc(f.name)+'">'+
+    (f.type==='color'?'<div class="hint" style="margin-top:8px">Color swatches are fixed.</div>':'<div class="m-lbl">Options</div>'+f.opts.map(function(o,i){return'<div class="li"><div class="grow">'+esc(o)+'</div><button class="btn btn-g btn-sm" onclick="trDelOpt(\''+which+'\',\''+fid+'\','+i+')">✕</button></div>';}).join('')+
+    '<div class="row" style="margin-top:6px"><input class="m-in" id="tre-new" placeholder="Add option" onkeydown="if(event.key===\'Enter\')trNewOpt(\''+which+'\',\''+fid+'\')"><button class="btn btn-p" onclick="trNewOpt(\''+which+'\',\''+fid+'\')">＋</button></div>')+
+    '<div class="hint" style="margin-top:8px">These options are shared by everything in “'+esc((cat(catId)||{name:'this type'}).name)+'”.</div></div>'+
+    '<div class="mo-f"><button class="btn btn-d" onclick="trDelField(\''+which+'\',\''+fid+'\')">Delete field</button><button class="btn btn-p" onclick="trRename(\''+which+'\',\''+fid+'\')">Done</button></div>';
+  var d=openModal(h,4);d.style.zIndex=1300;
+}
+function _trMut(which,fid,fn){var catId=trCat(which),fs=clone(traitSchema(catId)),f=fs.find(function(x){return x.id===fid;});if(f){fn(f,fs);saveSchema(catId,fs);}}
+function trDelOpt(which,fid,i){_trMut(which,fid,function(f){f.opts.splice(i,1);});trEdit(which,fid);}
+function trNewOpt(which,fid){var v=($('tre-new').value||'').trim();if(!v)return;_trMut(which,fid,function(f){if(f.opts.indexOf(v)<0)f.opts.push(v);});trEdit(which,fid);}
+function trRename(which,fid){var n=($('tre-name').value||'').trim();if(n)_trMut(which,fid,function(f){f.name=n;});closeModal(4);trRerender(which);}
+function trDelField(which,fid){if(!confirm('Delete this field for the whole type?'))return;var catId=trCat(which),fs=clone(traitSchema(catId)).filter(function(x){return x.id!==fid;});saveSchema(catId,fs);closeModal(4);trRerender(which);}
+function traitSummary(tr){return Object.keys(tr||{}).map(function(k){return(tr[k]||[]).join(' ');}).filter(Boolean).join(' · ');}
+
+// ── matching ──
+function refScore(ref,sel,catId){
+  if(catId&&ref.cat!==catId)return -1;
+  var s=0,miss=0;Object.keys(sel).forEach(function(fid){var want=sel[fid]||[],have=(ref.traits||{})[fid]||[];
+    want.forEach(function(v){if(have.indexOf(v)>=0)s+=(fid==='line'||fid==='brand')?3:1;else if(have.length)miss++;});});
+  return s-miss*0.5;
+}
+function refMatches(sel,catId,q){
+  q=(q||'').toLowerCase().trim();var any=Object.keys(sel).some(function(k){return(sel[k]||[]).length;});
+  return vals(S.refs).map(function(r){return{r:r,s:refScore(r,sel,catId)};}).filter(function(x){
+    if(x.s<0)return false;if(q&&(x.r.name+' '+(x.r.notes||'')+' '+traitSummary(x.r.traits)).toLowerCase().indexOf(q)<0)return false;return !any||x.s>0;})
+    .sort(function(a,b){return b.s-a.s||a.r.name.localeCompare(b.r.name);});
+}
+function refThumb(r){return r.imgs&&r.imgs.length?r.imgs[0]:(r.mockImg||'');}
+function refLinkedItem(refId){return vals(S.items).find(function(i){return i.ref===refId;});}
+
+// ════════════ 🔎 FIND ════════════
+var F=null;
+function openFind(opts){
+  opts=opts||{};var it=opts.itemId&&S.items[opts.itemId];
+  F={itemId:opts.itemId||'',cat:it?it.cat:(L.catFilter!=='all'?L.catFilter:((catList().find(function(c){return _idKind(c.id)==='shoe';})||{}).id||'')),
+    traits:it&&it.traits?clone(it.traits):{},notes:it?(it.desc||''):'',mock:it&&it.mock?clone(it.mock):null,photo:null,
+    place:L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:'',date:tod(),q:''};
+  TR_OPEN.F={};traitSchema(F.cat).slice(0,4).forEach(function(f){TR_OPEN.F[f.id]=true;});
+  rFind();
+}
+function _fCap(){if(!F)return;var e;if((e=$('f-notes')))F.notes=e.value;if((e=$('f-q')))F.q=e.value;}
+function rFind(){
+  if(!F)return;
+  var kind=_idKind(F.cat),m=refMatches(F.traits,F.cat,F.q);
+  var h='<div class="mo-h"><h3>🔎 '+(F.itemId?'Find this mystery':'Find it')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" id="find-b">';
+  h+='<div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){return'<button class="chip'+(F.cat===c.id?' on':'')+'" onclick="_fCap();F.cat=\''+c.id+'\';F.traits={};rFind()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="hint" style="margin:4px 0 6px">Tap what you remember — your library narrows below. Tap a heading to fold it.</div>';
+  h+=traitsHTML('F',TR_OPEN.F);
+  if(kind==='shoe'){h+='<div class="trf"><div class="trh" onclick="TR_OPEN.F._mock=!TR_OPEN.F._mock;_fCap();rFind()"><span>'+(TR_OPEN.F._mock?'▾':'▸')+'</span><b>👟 Mockup</b><span class="trsum">'+(F.mock?'drawn':'')+'</span></div>'+
+    (TR_OPEN.F._mock?'<div onclick="_fCap();openShoeBuilder(F.mock,function(m){F.mock=m;rFind();})" style="cursor:pointer">'+shoeSVG(F.mock||shoeDefault(),false)+'<div class="hint" style="text-align:center">Tap to '+(F.mock?'edit':'sketch')+' the colors</div></div>':'')+'</div>';}
+  h+='<div class="trf"><div class="trh" onclick="TR_OPEN.F._notes=!TR_OPEN.F._notes;_fCap();rFind()"><span>'+(TR_OPEN.F._notes?'▾':'▸')+'</span><b>📝 Notes / photo</b><span class="trsum">'+esc((F.notes||'').slice(0,40))+(F.photo?' 📷':'')+'</span></div>'+
+    (TR_OPEN.F._notes?'<textarea class="m-in" id="f-notes" placeholder="Anything else you remember (keyboard 🎤 works)">'+esc(F.notes)+'</textarea>'+
+      '<div class="row" style="margin-top:6px">'+(F.photo?'<img src="'+F.photo+'" class="thumb" style="width:52px;height:52px;object-fit:cover">':'')+
+      '<button class="btn btn-s btn-sm" onclick="_fCap();pickPhoto(\'cam\',function(d){F.photo=d;rFind();})">📷</button><button class="btn btn-s btn-sm" onclick="_fCap();pickPhoto(\'gal\',function(d){F.photo=d;rFind();})">🖼</button>'+
+      (F.photo?'<button class="btn btn-s btn-sm" onclick="ID={photo:F.photo};idLens()">🔍 Google Lens</button><button class="btn btn-g btn-sm" onclick="F.photo=null;rFind()">✕</button>':'')+'</div>':'')+'</div>';
+  if(!F.itemId)h+='<div style="margin-top:8px">'+placeChip(F.place,'_fCap();openPlacePicker(function(id){F.place=id;rFind();})','_fCap();F.place=\'\';rFind()')+'</div>';
+  // matches
+  var total=vals(S.refs).filter(function(r){return r.cat===F.cat;}).length;
+  h+='<div class="m-lbl" style="margin-top:14px">📚 Your library <span class="r">'+m.length+' of '+total+'</span></div>';
+  h+='<input class="m-in" id="f-q" placeholder="Search library names / notes" value="'+esc(F.q)+'" oninput="F.q=this.value;debounce(\'fq\',function(){var e=$(\'find-match\');if(e){e.innerHTML=findMatchHTML();hydrate(e);}},200)" style="margin-bottom:8px">';
+  h+='<div id="find-match">'+findMatchHTML()+'</div>';
+  var words=[].concat.apply([],Object.keys(F.traits).map(function(k){return F.traits[k];})).join(' ');
+  h+='<div class="row" style="margin-top:10px"><a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(words+' '+((cat(F.cat)||{}).name||''))+'" target="_blank" rel="noopener">🖼 Google Images for these words</a>'+
+    (idProvider()?'<button class="btn btn-g btn-sm" onclick="_fCap();fToAI()">🤖 Ask AI</button>':'')+'</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="_fCap();fSaveMystery()">❓ '+(F.itemId?'Save notes':'Save as mystery')+'</button><button class="btn btn-p" onclick="_fCap();fToRef()">＋ Add to library</button></div>';
+  var st=$('find-b')?$('find-b').scrollTop:0;openModal(h,1);var b=$('find-b');if(b)b.scrollTop=st;
+}
+function findMatchHTML(){
+  var m=refMatches(F.traits,F.cat,F.q);
+  if(!vals(S.refs).length)return'<div class="hint">Your library is empty. Add references from the 📚 Library tab (your own pics, screenshots, saved images) — or tap <b>＋ Add to library</b> to save what you\'re describing now.</div>';
+  if(!m.length)return'<div class="hint">Nothing in your library matches all of that. Fold a section or untick a detail.</div>';
+  return'<div class="pick-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+m.slice(0,60).map(function(x){var r=x.r,k=refThumb(r);
+    return'<div class="pick" onclick="openRefView(\''+r.id+'\',true)">'+(k?imgHTML(k,'','style="height:76px;background:#fff"'):'<div class="thumb" style="height:76px">'+((cat(r.cat)||{}).icon||'📦')+'</div>')+'<div style="white-space:normal;height:2.4em;line-height:1.2em;overflow:hidden">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
+}
+function fToAI(){var desc=['Type: '+((cat(F.cat)||{}).name||'')].concat(traitSchema(F.cat).map(function(f){var v=F.traits[f.id];return v&&v.length?f.name+': '+v.join(', '):'';}).filter(Boolean)).concat(F.notes?['Notes: '+F.notes]:[]).join('\n');
+  var keep=F;openIdentify({});ID.cat=keep.cat;ID.text=desc;ID.photo=keep.photo;rID();}
+function fSaveMystery(){
+  var mockP=F.mock?shoePNG(F.mock):Promise.resolve(null);
+  mockP.then(function(mp){
+    if(F.itemId&&S.items[F.itemId]){var it=clone(S.items[F.itemId]);it.traits=F.traits;it.desc=F.notes||traitSummary(F.traits);it.mock=F.mock;if(mp&&!it.img)it.img=imgSave(mp);put('items',it);closeModal(1);render();return toast('Saved');}
+    var sum=traitSummary(F.traits),short=(F.notes||sum||'Mystery').slice(0,40);
+    var it2={id:'it_'+gid(),name:'❓ '+short,cat:F.cat,mystery:true,traits:F.traits,desc:F.notes||sum,notes:F.notes||'',mock:F.mock,folders:[],created:now(),img:''};
+    var fin=function(){put('items',it2);addSighting({item:it2.id,date:F.date,place:F.place,note:'unidentified'});if(F.place){L.lastPlace=F.place;L.lastPlaceDay=tod();svL();}closeModal(1);render();toast('❓ Saved — find it later from ❓ To identify',3000);};
+    if(F.photo)resizeData(F.photo,900,'webp',0.85).then(function(d){it2.img=imgSave(d);fin();});else{if(mp)it2.img=imgSave(mp);fin();}
+  });
+}
+function fToRef(){openRefEditor(null,{cat:F.cat,traits:clone(F.traits),notes:F.notes,mock:F.mock?clone(F.mock):null,photo:F.photo,fromFind:true});}
+// "✓ This is it" from a library match
+function refPicked(refId){
+  var r=S.refs[refId];if(!r)return;
+  var date=F?F.date:tod(),place=F?F.place:'';
+  closeModal(2);closeModal(1);
+  if(F&&F.itemId&&S.items[F.itemId]){var it=clone(S.items[F.itemId]);it.name=r.name;it.mystery=false;it.ref=r.id;it.traits=clone(r.traits||{});if(!it.img&&refThumb(r))it.img=refThumb(r);put('items',it);render();toast('❓ → '+r.name);F=null;return openItemModal(it.id);}
+  var linked=refLinkedItem(r.id)||vals(S.items).find(function(i){return i.name.toLowerCase()===r.name.toLowerCase();});
+  if(linked){addSighting({item:linked.id,date:date,place:place});if(!linked.ref){var l2=clone(linked);l2.ref=r.id;put('items',l2);}render();toast('✅ Spotted: '+r.name);F=null;return;}
+  var it2={id:'it_'+gid(),name:r.name,cat:r.cat,ref:r.id,traits:clone(r.traits||{}),notes:r.notes||'',folders:[],created:now(),img:refThumb(r)};
+  put('items',it2);addSighting({item:it2.id,date:date,place:place});if(place){L.lastPlace=place;L.lastPlaceDay=tod();svL();}
+  render();toast('✅ Added '+r.name+' + sighting');F=null;openItemModal(it2.id);
+}
+
+// ════════════ 📚 LIBRARY TAB ════════════
+var LF={cat:'all',traits:{},q:'',sel:null};
+function viewLibrary(){
+  var all=vals(S.refs);
+  var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search your library…" value="'+esc(LF.q)+'" oninput="LF.q=this.value;debounce(\'lq\',function(){var g=$(\'lib-grid\');if(g){g.innerHTML=libGridHTML();hydrate(g);}},200)" style="flex:1">'+
+    '<button class="btn btn-p" onclick="openRefEditor(null,{cat:LF.cat!==\'all\'?LF.cat:\'\'})">＋</button></div>';
+  h+='<div class="chips"><button class="chip'+(LF.cat==='all'?' on':'')+'" onclick="LF.cat=\'all\';LF.traits={};render()">All <span style="opacity:.55">'+all.length+'</span></button>'+
+    catList().map(function(c){var n=all.filter(function(r){return r.cat===c.id;}).length;return'<button class="chip'+(LF.cat===c.id?' on':'')+'" onclick="LF.cat=\''+c.id+'\';LF.traits={};render()">'+c.icon+' '+esc(c.name)+(n?' <span style="opacity:.55">'+n+'</span>':'')+'</button>';}).join('')+'</div>';
+  h+='<div class="row wrap" style="margin:2px 0 8px"><button class="btn btn-s btn-sm" onclick="openStudy()">🃏 Study</button><button class="btn btn-s btn-sm" onclick="LF.sel=LF.sel?null:{};render()">'+(LF.sel?'✖️ Cancel compare':'⚖️ Compare')+'</button>'+
+    (LF.sel&&Object.keys(LF.sel).length>=2?'<button class="btn btn-p btn-sm" onclick="openCompare()">Compare '+Object.keys(LF.sel).length+' →</button>':'')+
+    '<button class="btn btn-g btn-sm" onclick="libFromItems()">↧ Add from my items</button></div>';
+  if(LF.cat!=='all'){var nf=Object.keys(LF.traits).filter(function(k){return LF.traits[k].length;}).length;
+    h+='<details class="sec" style="margin-top:0" '+(TR_OPEN.LF._open?'open':'')+' ontoggle="TR_OPEN.LF._open=this.open"><summary style="font-weight:700;font-size:13px">Filter by details'+(nf?' ('+nf+')':'')+'</summary>'+traitsHTML('LF',TR_OPEN.LF)+'</details>';}
+  h+='<div id="lib-grid">'+libGridHTML()+'</div>';
+  return h;
+}
+function libGridHTML(){
+  var list=LF.cat==='all'?vals(S.refs).filter(function(r){var q=LF.q.toLowerCase();return!q||(r.name+' '+(r.notes||'')+' '+traitSummary(r.traits)).toLowerCase().indexOf(q)>=0;}).sort(function(a,b){return a.name.localeCompare(b.name);})
+    :refMatches(LF.traits,LF.cat,LF.q).map(function(x){return x.r;});
+  if(!vals(S.refs).length)return'<div class="empty"><div class="big">📚</div><b>Build your own reference library.</b><br>Add pics you collect — screenshots, saved images, your own photos — tag their details (brand, line, sole, colors…), and add the tells that help <i>you</i> tell them apart.<br><br>Then 🔎 Find narrows to the right ones while you scroll your own pictures.</div>';
+  if(!list.length)return'<div class="empty">No matches.</div>';
+  return'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(function(r){var k=refThumb(r),sel=LF.sel&&LF.sel[r.id],it=refLinkedItem(r.id),n=it?itemSightings(it.id).length:0;
+    var line=(r.traits&&(r.traits.line||r.traits.type)||[]).join(' / ');
+    return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(LF.sel?'libSel(\''+r.id+'\')':'openRefView(\''+r.id+'\')')+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
+      (n?'<div class="ribbon">×'+n+'</div>':'')+(r.imgs&&r.imgs.length>1?'<div class="ribbon none" style="left:auto;right:6px;top:6px;border-radius:5px">'+r.imgs.length+' pics</div>':'')+
+      '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker&&r.imgs&&r.imgs.length?'data-st':''):'<div class="inv-noimg">'+((cat(r.cat)||{}).icon||'📦')+'</div>')+'</div>'+
+      '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div><div class="inv-meta">'+esc(line)+'</div></div></div>';}).join('')+'</div>';
+}
+function libSel(id){if(LF.sel[id])delete LF.sel[id];else{if(Object.keys(LF.sel).length>=3)return toast('Compare up to 3');LF.sel[id]=1;}render();}
+function libFromItems(){
+  openItemPicker(function(id){var it=S.items[id];if(!it)return;
+    var ex=vals(S.refs).find(function(r){return r.name.toLowerCase()===it.name.toLowerCase();});if(ex){toast('Already in your library');return openRefView(ex.id);}
+    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
+    var x=clone(it);x.ref=r.id;put('items',x);render();openRefEditor(r.id);
+  },{title:'Add which item to the library?'});
+}
+
+// ── view one reference ──
+function openRefView(id,fromFind){
+  var r=S.refs[id];if(!r)return;var it=refLinkedItem(id),ss=it?itemSightings(it.id):[];
+  var imgs=(r.imgs||[]).slice();if(r.mockImg)imgs.push(r.mockImg);
+  var h='<div class="mo-h"><h3>'+esc(r.name)+'</h3><button class="icon-btn" onclick="closeModal(2);openRefEditor(\''+id+'\')">✏️</button><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+=imgs.length?'<div class="ref-car">'+imgs.map(function(k){return imgHTML(k,'','onclick="refZoom(this)"');}).join('')+'</div>':'<div class="empty" style="padding:20px">No pictures yet — tap ✏️ to add some.</div>';
+  if(imgs.length>1)h+='<div class="hint" style="text-align:center">swipe for '+imgs.length+' pictures</div>';
+  var fs=traitSchema(r.cat);
+  h+='<div style="margin-top:8px">'+fs.map(function(f){var v=(r.traits||{})[f.id];if(!v||!v.length)return'';var mine=F&&fromFind?(F.traits[f.id]||[]):[];
+    return'<div class="row" style="align-items:flex-start;padding:3px 0"><span class="hint" style="width:96px;flex-shrink:0">'+esc(f.name)+'</span><div class="chips" style="flex-wrap:wrap;padding:0">'+v.map(function(x){return'<span class="chip" style="'+(mine.indexOf(x)>=0?'border-color:#16a34a;background:#16a34a22':'')+'">'+(f.type==='color'?'<span style="width:10px;height:10px;border-radius:50%;background:'+_colorHex(x)+';display:inline-block;border:1px solid #8884"></span>':'')+esc(x)+'</span>';}).join('')+'</div></div>';}).join('')+'</div>';
+  if(r.notes)h+='<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap;margin-top:3px">'+esc(r.notes)+'</div></div>';
+  if(r.link)h+='<a class="hint" href="'+esc(r.link)+'" target="_blank" rel="noopener">🔗 '+esc(r.link.slice(0,60))+'</a>';
+  h+='<div class="hint" style="margin-top:8px">'+(it?'Spotted '+ss.length+'×'+(ss[0]?' · last '+fmtDate(ss[0].date):''):'Not spotted yet')+'</div>';
+  h+='</div><div class="mo-f">'+(it?'<button class="btn btn-s" onclick="closeModal(2);closeModal(1);openItemModal(\''+it.id+'\')">Open item</button>':'')+
+    '<button class="btn btn-p" onclick="refPicked(\''+id+'\')">'+(fromFind?'✓ This is it':'📍 Spotted it')+'</button></div>';
+  openModal(h,2);
+}
+function refZoom(el){var d=document.createElement('div');d.className='mo-ov';d.style.zIndex=2500;d.style.alignItems='center';d.style.background='rgba(0,0,0,.92)';d.innerHTML='<img src="'+el.src+'" style="max-width:100vw;max-height:100vh;object-fit:contain">';d.onclick=function(){d.remove();};document.body.appendChild(d);}
+
+// ── add / edit a reference ──
+var RE=null;
+function openRefEditor(id,o){
+  o=o||{};
+  if(id&&S.refs[id])RE={f:clone(S.refs[id]),isNew:false,add:[]};
+  else RE={f:{id:'rf_'+gid(),name:o.name||'',cat:o.cat||(catList()[0]||{}).id||'',traits:o.traits||{},imgs:[],notes:o.notes||'',link:'',mock:o.mock||null,created:now()},isNew:true,add:[],fromFind:o.fromFind};
+  RE.f.traits=RE.f.traits||{};RE.f.imgs=RE.f.imgs||[];
+  if(o.photo)RE.add.push(o.photo);
+  TR_OPEN.RE={};traitSchema(RE.f.cat).forEach(function(f){TR_OPEN.RE[f.id]=true;});
+  rRef();
+}
+function _reCap(){if(!RE)return;var e;if((e=$('re-name')))RE.f.name=e.value;if((e=$('re-notes')))RE.f.notes=e.value;if((e=$('re-link')))RE.f.link=e.value;}
+function rRef(){
+  var f=RE.f;
+  var h='<div class="mo-h"><h3>📚 '+(RE.isNew?'New reference':'Edit reference')+'</h3>'+(RE.isNew?'':'<button class="icon-btn" onclick="refDelete()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" id="re-b">';
+  h+='<input class="m-in" id="re-name" placeholder="Name, e.g. Nike Dunk Low Premium Black Leather" value="'+esc(f.name)+'">';
+  h+='<div class="m-lbl">Pictures <span class="r hint">add as many angles as you like</span></div><div class="ref-thumbs">'+
+    f.imgs.map(function(k,i){return'<div class="rt">'+imgHTML(k)+'<button onclick="_reCap();RE.f.imgs.splice('+i+',1);rRef()">✕</button>'+(i?'<button style="left:2px;right:auto" onclick="_reCap();var a=RE.f.imgs;a.unshift(a.splice('+i+',1)[0]);rRef()">★</button>':'')+'</div>';}).join('')+
+    RE.add.map(function(d,i){return'<div class="rt"><img src="'+d+'"><button onclick="_reCap();RE.add.splice('+i+',1);rRef()">✕</button></div>';}).join('')+'</div>';
+  h+='<div class="src-row" style="margin-top:6px">'+[['cam','📷','Camera'],['gal','🖼','Gallery'],['url','🔗','Web URL'],['paste','📋','Paste']].map(function(s){return'<button class="btn btn-s" onclick="_reCap();pickPhoto(\''+s[0]+'\',function(d){RE.add.push(d);rRef();})"><span>'+s[1]+'</span>'+s[2]+'</button>';}).join('')+'</div>';
+  h+='<div class="hint" style="margin-top:4px">Screenshots work great — crop them first in your gallery. Tip: in Chrome, long-press any image → Share → Spotted.</div>';
+  h+='<div class="m-lbl">Type</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_reCap();RE.f.cat=\''+c.id+'\';rRef()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="m-lbl">Details</div>'+traitsHTML('RE',TR_OPEN.RE);
+  if(_idKind(f.cat)==='shoe')h+='<div class="m-lbl">👟 Mockup <span class="r hint">optional</span></div><div onclick="_reCap();openShoeBuilder(RE.f.mock,function(m){RE.f.mock=m;rRef();})" style="cursor:pointer;border:1px dashed var(--paperGrid);border-radius:10px">'+shoeSVG(f.mock||shoeDefault(),false)+'</div>';
+  h+='<div class="m-lbl">👀 Tells <span class="r hint">how YOU tell it apart</span></div><textarea class="m-in" id="re-notes" placeholder="e.g. Dunk: toe box overlay wraps the front, padded collar, swoosh ends at heel. AF1 has a thicker sole and perforated toe.">'+esc(f.notes||'')+'</textarea>';
+  h+='<input class="m-in" id="re-link" placeholder="Link (optional)" value="'+esc(f.link||'')+'" style="margin-top:6px">';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(2)">Cancel</button><button class="btn btn-p" onclick="refSave()">Save</button></div>';
+  var st=$('re-b')?$('re-b').scrollTop:0;openModal(h,2);var b=$('re-b');if(b)b.scrollTop=st;
+}
+function refSave(){
+  _reCap();var f=RE.f;if(!f.name.trim()){toast('Give it a name');var n=$('re-name');if(n)n.focus();return;}
+  f.name=f.name.trim();
+  var tasks=RE.add.map(function(d){return resizeData(d,900,'webp',0.86).then(function(x){f.imgs.push(imgSave(x));});});
+  var mp=f.mock?shoePNG(f.mock).then(function(p){if(f.mockImg)fbDeleteImage(f.mockImg);f.mockImg=imgSave(p);}):Promise.resolve();
+  Promise.all(tasks.concat([mp])).then(function(){
+    var old=RE.isNew?null:S.refs[f.id];
+    if(old)(old.imgs||[]).forEach(function(k){if(f.imgs.indexOf(k)<0&&!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});
+    put('refs',f);var fromFind=RE.fromFind;RE=null;closeModal(2);render();toast('📚 Saved to library');
+    if(fromFind&&F)rFind();
+  });
+}
+function refDelete(){if(!confirm('Delete "'+RE.f.name+'" from your library? (Spotted items stay.)'))return;var f=RE.f;
+  (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);
+  vals(S.items).forEach(function(i){if(i.ref===f.id){var x=clone(i);delete x.ref;put('items',x);}});
+  del('refs',f.id);RE=null;closeModal(2);render();}
+
+// ── 🃏 study: flashcards from your library ──
+var ST=null;
+function openStudy(){var pool=(LF.cat==='all'?vals(S.refs):refMatches(LF.traits,LF.cat,LF.q).map(function(x){return x.r;})).filter(function(r){return refThumb(r);});
+  if(pool.length<2)return toast('Add at least 2 references with pictures');ST={pool:shuffle(pool),i:0,show:false,right:0,seen:0};rStudy();}
+function rStudy(){
+  var r=ST.pool[ST.i%ST.pool.length],imgs=(r.imgs||[]).concat(r.mockImg?[r.mockImg]:[]),k=imgs[Math.floor(Math.random()*imgs.length)];
+  var h='<div class="mo-h"><h3>🃏 Study · '+(ST.i+1)+'/'+ST.pool.length+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">'+
+    '<div class="studio-prev white" style="min-height:240px">'+imgHTML(k)+'</div>';
+  if(ST.show){h+='<div style="font-size:18px;font-weight:700;margin-top:10px;text-align:center">'+esc(r.name)+'</div><div class="hint" style="text-align:center">'+esc(traitSummary(r.traits))+'</div>'+(r.notes?'<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap">'+esc(r.notes)+'</div></div>':'');}
+  else h+='<div class="hint" style="text-align:center;margin-top:10px">What is it? Say it in your head, then reveal.</div>';
+  h+='</div><div class="mo-f">'+(ST.show?'<button class="btn btn-s" onclick="ST.seen++;ST.i++;ST.show=false;rStudy()">✗ Missed</button><button class="btn btn-p" onclick="ST.seen++;ST.right++;ST.i++;ST.show=false;rStudy()">✓ Got it</button>':'<button class="btn btn-p" onclick="ST.show=true;rStudy()">Reveal</button>')+'</div>';
+  if(ST.seen)h=h.replace('🃏 Study','🃏 '+ST.right+'/'+ST.seen);
+  openModal(h,1);
+}
+// ── ⚖️ compare side by side ──
+function openCompare(){
+  var rs=Object.keys(LF.sel||{}).map(function(id){return S.refs[id];}).filter(Boolean);if(rs.length<2)return;
+  var fs=traitSchema(rs[0].cat),n=rs.length;
+  var col='grid-template-columns:repeat('+n+',minmax(0,1fr))';
+  var h='<div class="mo-h"><h3>⚖️ Compare</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){var k=refThumb(r);return'<div style="text-align:center">'+(k?imgHTML(k,'','style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:8px" onclick="refZoom(this)"'):'')+'<div style="font-size:12px;font-weight:700;margin-top:3px">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
+  fs.forEach(function(f){var vs=rs.map(function(r){return((r.traits||{})[f.id]||[]).join(', ');});if(!vs.some(Boolean))return;var diff=vs.some(function(v){return v!==vs[0];});
+    h+='<div class="m-lbl">'+esc(f.name)+(diff?' <span class="r" style="color:#d97706">differs</span>':'')+'</div><div style="display:grid;'+col+';gap:6px">'+vs.map(function(v){return'<div style="font-size:12px;'+(diff?'font-weight:700':'color:var(--inkFaint)')+'">'+esc(v||'—')+'</div>';}).join('')+'</div>';});
+  h+='<div class="m-lbl">👀 Tells</div><div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){return'<div style="font-size:12px;white-space:pre-wrap">'+esc(r.notes||'—')+'</div>';}).join('')+'</div>';
+  h+='</div>';openModal(h,1);
+}
+
+// ════════════ 👟 SHOE MOCKUP BUILDER ════════════
+var SHOE_PARTS=[['upper','Upper'],['toe','Toe cap'],['eyestay','Eyestay'],['heel','Heel'],['collar','Collar'],['tongue','Tongue'],['logo','Logo'],['laces','Laces'],['midsole','Midsole'],['outsole','Outsole'],['strap','Strap'],['air','Air window']];
+function shoeDefault(){return{cut:'low',sole:'normal',logo:'curve',strap:false,air:false,speckle:false,perf:false,overlay:true,
+  c:{upper:'#f5f5f5',toe:'#f5f5f5',eyestay:'#f5f5f5',heel:'#f5f5f5',collar:'#f5f5f5',tongue:'#f5f5f5',logo:'#111111',laces:'#f5f5f5',midsole:'#ffffff',outsole:'#9ca3af',strap:'#111111',air:'#cbd5e1'}};}
+function shoeSVG(m,interactive,selPart){
+  m=m||shoeDefault();var c=m.c;
+  var midH=m.sole==='thin'?8:m.sole==='chunky'?32:m.sole==='runner'?26:16;
+  var base=172-midH, collarY=m.cut==='high'?base-118:m.cut==='mid'?base-92:base-72;
+  var P=function(id,d,extra){return'<path data-p="'+id+'" d="'+d+'" fill="'+(c[id]||'#ddd')+'" stroke="#222" stroke-width="2" stroke-linejoin="round"'+(interactive?' onclick="sbPart(\''+id+'\')" style="cursor:pointer'+(selPart===id?';filter:drop-shadow(0 0 4px #f59e0b)':'')+'"':'')+(extra||'')+'/>';};
+  var s='<svg viewBox="0 0 420 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">';
+  // outsole + midsole
+  s+=P('outsole','M30,'+(base+midH)+' L382,'+(base+midH)+' Q394,'+(base+midH-2)+' 390,'+(base+midH+8)+' Q385,'+(base+midH+14)+' 370,'+(base+midH+14)+' L40,'+(base+midH+14)+' Q26,'+(base+midH+12)+' 30,'+(base+midH)+' Z');
+  s+=P('midsole','M32,'+base+' L376,'+base+' Q398,'+(base+2)+' 392,'+(base+midH)+' L30,'+(base+midH)+' Q22,'+(base+midH/2)+' 32,'+base+' Z');
+  if(m.speckle)for(var i=0;i<26;i++)s+='<circle cx="'+(40+((i*53)%340))+'" cy="'+(base+3+((i*7)%Math.max(4,midH-4)))+'" r="1.6" fill="#333" pointer-events="none"/>';
+  if(m.air&&midH>=14)s+=P('air','M70,'+(base+4)+' L120,'+(base+4)+' Q126,'+(base+midH/2)+' 120,'+(base+midH-4)+' L70,'+(base+midH-4)+' Q64,'+(base+midH/2)+' 70,'+(base+4)+' Z');
+  // upper body
+  var up='M40,'+base+' L376,'+base+' C398,'+(base-4)+' 396,'+(base-34)+' 366,'+(base-46)+' C330,'+(base-58)+' 268,'+(base-62)+' 238,'+(collarY+40)+' L214,'+(collarY+16)+' C182,'+(collarY+30)+' 140,'+(collarY+30)+' 108,'+(collarY+16)+' C82,'+(collarY+4)+' 62,'+collarY+' 50,'+(collarY+4)+' C38,'+(collarY+40)+' 34,'+(base-30)+' 40,'+base+' Z';
+  s+=P('upper',up);
+  if(m.overlay){
+    s+=P('toe','M376,'+base+' C398,'+(base-4)+' 396,'+(base-34)+' 366,'+(base-46)+' C344,'+(base-52)+' 322,'+(base-44)+' 314,'+(base-24)+' Q310,'+(base-6)+' 318,'+base+' Z');
+    s+=P('heel','M40,'+base+' C34,'+(base-30)+' 36,'+(base-58)+' 46,'+(base-66)+' C78,'+(base-70)+' 100,'+(base-40)+' 104,'+base+' Z');
+  }
+  // tongue + eyestay + collar
+  s+=P('tongue','M206,'+(collarY+20)+' C204,'+(collarY-16)+' 232,'+(collarY-20)+' 242,'+(collarY+2)+' L240,'+(collarY+42)+' Z');
+  s+=P('eyestay','M210,'+(collarY+12)+' L316,'+(base-58)+' L322,'+(base-42)+' L218,'+(collarY+30)+' Z');
+  s+='<path d="M50,'+(collarY+4)+' C62,'+collarY+' 82,'+(collarY+4)+' 108,'+(collarY+16)+' C140,'+(collarY+30)+' 182,'+(collarY+30)+' 214,'+(collarY+16)+'" fill="none" stroke="'+c.collar+'" stroke-width="10" stroke-linecap="round"'+(interactive?' onclick="sbPart(\'collar\')" style="cursor:pointer"':'')+'/>';
+  s+='<path d="M50,'+(collarY+4)+' C62,'+collarY+' 82,'+(collarY+4)+' 108,'+(collarY+16)+' C140,'+(collarY+30)+' 182,'+(collarY+30)+' 214,'+(collarY+16)+'" fill="none" stroke="#222" stroke-width="2" pointer-events="none"/>';
+  // laces
+  for(var l=0;l<6;l++){var t=l/5,x=216+t*96,y=(collarY+20)+t*((base-50)-(collarY+20));s+='<line x1="'+(x-8)+'" y1="'+(y-4)+'" x2="'+(x+10)+'" y2="'+(y+6)+'" stroke="'+c.laces+'" stroke-width="5" stroke-linecap="round"'+(interactive?' onclick="sbPart(\'laces\')" style="cursor:pointer"':'')+'/>';}
+  if(m.perf&&m.overlay)for(var q=0;q<10;q++)s+='<circle cx="'+(336+(q%5)*10)+'" cy="'+(base-30+Math.floor(q/5)*10)+'" r="1.8" fill="#333" pointer-events="none"/>';
+  // logo
+  if(m.logo==='curve')s+=P('logo','M140,'+(base-14)+' C210,'+(base-20)+' 270,'+(base-44)+' 304,'+(base-74)+' C276,'+(base-38)+' 214,'+(base-10)+' 150,'+(base-4)+' Q132,'+(base-4)+' 140,'+(base-14)+' Z');
+  else if(m.logo==='stripes')for(var k=0;k<3;k++)s+=P('logo','M'+(196+k*22)+','+(base-6)+' L'+(226+k*22)+','+(collarY+44+k*6)+' L'+(238+k*22)+','+(collarY+48+k*6)+' L'+(208+k*22)+','+(base-6)+' Z');
+  else if(m.logo==='panel')s+=P('logo','M150,'+(base-10)+' L190,'+(base-62)+' L246,'+(base-62)+' L206,'+(base-10)+' Z');
+  else if(m.logo==='badge')s+=P('logo','M64,'+(base-44)+' m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0');
+  if(m.strap)s+=P('strap','M168,'+(collarY+26)+' L200,'+(collarY+20)+' L262,'+(base-4)+' L230,'+(base-4)+' Z');
+  return s+'</svg>';
+}
+function shoePNG(m){
+  return new Promise(function(res){var svg=shoeSVG(m,false).replace('style="width:100%;height:auto;display:block"','width="840" height="400"');
+    var img=new Image();img.onload=function(){var c=document.createElement('canvas');c.width=840;c.height=400;var x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,840,400);x.drawImage(img,0,0,840,400);res(c.toDataURL('image/png'));};
+    img.onerror=function(){res(null);};img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);});
+}
+var SB=null;
+function openShoeBuilder(m,cb){SB={m:m?clone(m):shoeDefault(),part:'upper',cb:cb};rSB();}
+function sbPart(p){SB.part=p;rSB();}
+function rSB(){
+  var m=SB.m;
+  var opt=function(key,arr){return'<div class="seg" style="margin-top:6px">'+arr.map(function(o){return'<button class="'+(m[key]===o[0]?'on':'')+'" onclick="SB.m.'+key+'=\''+o[0]+'\';rSB()">'+o[1]+'</button>';}).join('')+'</div>';};
+  var tog=function(key,label){return'<button class="chip'+(m[key]?' on':'')+'" onclick="SB.m.'+key+'=!SB.m.'+key+';rSB()">'+label+'</button>';};
+  var h='<div class="mo-h"><h3>👟 Mockup</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
+  h+='<div style="background:#fff;border-radius:12px;border:1px solid var(--paperGrid)">'+shoeSVG(m,true,SB.part)+'</div>';
+  h+='<div class="hint" style="text-align:center;margin:4px 0">Tap a part of the shoe (or pick below), then a color.</div>';
+  h+='<div class="chips" style="flex-wrap:wrap">'+SHOE_PARTS.filter(function(p){return(p[0]!=='strap'||m.strap)&&(p[0]!=='air'||m.air)&&((p[0]!=='toe'&&p[0]!=='heel')||m.overlay);}).map(function(p){return'<button class="chip'+(SB.part===p[0]?' on':'')+'" onclick="sbPart(\''+p[0]+'\')"><span style="width:12px;height:12px;border-radius:3px;background:'+m.c[p[0]]+';border:1px solid #8886;display:inline-block"></span>'+p[1]+'</button>';}).join('')+'</div>';
+  h+='<div class="sb-pal">'+TRAIT_COLORS.map(function(c){return'<button style="background:'+c[1]+'" title="'+c[0]+'" onclick="SB.m.c[SB.part]=\''+c[1]+'\';rSB()"></button>';}).join('')+
+    '<label style="background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)"><input type="color" value="'+(m.c[SB.part]||'#cccccc')+'" onchange="SB.m.c[SB.part]=this.value;rSB()" style="opacity:0;width:100%;height:100%"></label></div>';
+  h+='<button class="btn btn-g btn-sm" onclick="var v=SB.m.c[SB.part];Object.keys(SB.m.c).forEach(function(k){if([\'upper\',\'toe\',\'eyestay\',\'heel\',\'collar\',\'tongue\'].indexOf(k)>=0)SB.m.c[k]=v;});rSB()">Paint whole upper this color</button>';
+  h+='<div class="m-lbl">Cut</div>'+opt('cut',[['low','Low'],['mid','Mid'],['high','High']]);
+  h+='<div class="m-lbl">Sole</div>'+opt('sole',[['thin','Thin'],['normal','Normal'],['runner','Runner'],['chunky','Chunky']]);
+  h+='<div class="m-lbl">Side logo</div>'+opt('logo',[['none','None'],['curve','Curve'],['stripes','Stripes'],['panel','Panel'],['badge','Badge']]);
+  h+='<div class="m-lbl">Extras</div><div class="chips" style="flex-wrap:wrap">'+tog('overlay','Toe & heel overlays')+tog('strap','Strap')+tog('air','Air window')+tog('speckle','Speckled sole')+tog('perf','Perforated toe')+'</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="SB.m=shoeDefault();rSB()">Reset</button><button class="btn btn-p" onclick="var cb=SB.cb,m=SB.m;closeModal(3);cb(m)">Use mockup</button></div>';
+  openModal(h,3);
 }
 </script>
 </body>
