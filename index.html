@@ -34,7 +34,7 @@
   --check:repeating-conic-gradient(#1c1c1c 0% 25%,#121212 0% 50%) 50%/16px 16px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%}
+html,body{height:100%;overflow-x:hidden;max-width:100%}
 body{font-family:Quicksand,sans-serif;color:var(--ink);background:var(--paper);overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
 button{font-family:inherit;cursor:pointer;color:inherit}
@@ -42,7 +42,7 @@ input,select,textarea{font-family:inherit;color:var(--ink)}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:var(--paperGrid);border-radius:4px}
 
 /* ── Shell ── */
-.app{display:flex;flex-direction:column;min-height:100vh;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.app{display:flex;flex-direction:column;min-height:100vh;max-width:100vw;overflow-x:hidden;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
 .topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--paper);border-bottom:1px solid var(--paperGrid)}
 .brand{font-family:'Permanent Marker',cursive;font-size:22px;letter-spacing:.5px;line-height:1}
 .brand small{font-family:Quicksand;font-size:9px;color:var(--inkFaint);letter-spacing:0;margin-left:4px}
@@ -59,7 +59,9 @@ input,select,textarea{font-family:inherit;color:var(--ink)}
 .fab{position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:61;border:none;border-radius:28px;background:var(--accent1);color:var(--paper);font-weight:700;font-size:15px;padding:14px 20px;box-shadow:0 6px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:6px}
 .fab:active{transform:scale(.96)}
 .fab2{bottom:calc(140px + env(safe-area-inset-bottom));padding:12px 14px;font-size:18px;background:var(--paper);color:var(--ink);border:1px solid var(--paperGrid)}
-.content{padding:10px 12px 20px;flex:1}
+.content{padding:10px 12px 20px;flex:1;min-width:0}
+.row>*{min-width:0}
+.li .t,.li .s{overflow:hidden;text-overflow:ellipsis}
 
 /* ── Controls ── */
 .btn{padding:7px 12px;border-radius:8px;border:none;font-size:13px;font-weight:600;transition:all .12s;display:inline-flex;align-items:center;justify-content:center;gap:4px}
@@ -108,7 +110,8 @@ textarea.m-in{min-height:64px;resize:vertical}
 
 /* ── Items grid ── */
 .inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-@media(max-width:600px){.inv-grid{grid-template-columns:repeat(2,1fr);gap:8px}}
+.inv-grid>*{min-width:0}
+@media(max-width:600px){.inv-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 .inv-card{position:relative;border-radius:12px;background:var(--paper);border:1px solid var(--paperGrid);overflow:hidden;box-shadow:0 1px 4px var(--shadow);user-select:none;-webkit-user-select:none}
 .inv-card:active{transform:scale(.98)}
 .inv-imgw{width:100%;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;background:var(--paperDark);overflow:hidden}
@@ -141,7 +144,8 @@ textarea.m-in{min-height:64px;resize:vertical}
 /* ── Calendar ── */
 .cal-h{display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .cal-h h2{font-size:20px;flex:1;text-align:center}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.cal-cell{min-width:0;overflow:hidden}
 .cal-dow{font-size:10px;font-weight:700;text-align:center;color:var(--inkFaint);padding:2px 0}
 .cal-cell{min-height:64px;border:1px solid var(--paperGrid);border-radius:8px;padding:2px;position:relative;background:var(--paper);display:flex;flex-direction:column}
 .cal-cell.out{opacity:.35}
@@ -152,7 +156,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 .cal-more{font-size:9px;color:var(--inkFaint);font-weight:700}
 .cal-dots{position:absolute;right:3px;top:3px;display:flex;gap:1px}
 .cal-dots i{width:6px;height:6px;border-radius:50%;display:block}
-.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0}
+.stat-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0}
 .stat{border:1px solid var(--paperGrid);border-radius:10px;padding:8px;text-align:center}
 .stat b{display:block;font-size:20px}
 .stat span{font-size:10px;color:var(--inkFaint);font-weight:600}
@@ -244,7 +248,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.4.1';
+var APP_VERSION='v1.4.2';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
 
 // ── utils ──
@@ -1519,7 +1523,7 @@ function viewBingo(){
   h+='<div class="card-list">'+cards.map(function(c){
     var n=c.size,pid=isRace(c)?L.me:'';
     var done=c.cells.filter(function(x,i){return cellDoneFor(c,i,pid);}).length,lines=bingoLines(c,pid).length;
-    return'<div class="card-tile" onclick="L.activeCard=\''+c.id+'\';svL();render()"><div class="mini" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(x,i){return'<i class="'+(x.t==='free'?'f':cellDoneFor(c,i,pid)?'d':'')+'"></i>';}).join('')+'</div>'+
+    return'<div class="card-tile" onclick="L.activeCard=\''+c.id+'\';svL();render()"><div class="mini" style="grid-template-columns:repeat('+n+',minmax(0,1fr))">'+c.cells.map(function(x,i){return'<i class="'+(x.t==='free'?'f':cellDoneFor(c,i,pid)?'d':'')+'"></i>';}).join('')+'</div>'+
       '<div class="grow" style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+esc(c.name)+'</div><div class="hint">'+(isRace(c)?'🏁 Race':'👫 Team')+' · '+n+'×'+n+' · '+done+'/'+(n*n)+(isRace(c)?' yours':' stamped')+(lines?' · <b style="color:#d97706">'+lines+' BINGO'+(lines>1?'S':'')+'</b>':'')+'</div></div><span style="font-size:20px">›</span></div>';
   }).join('')+'</div>';
   return h;
@@ -1557,8 +1561,8 @@ function viewCard(c){
     if(pid!==L.me)h+='<div class="hint" style="text-align:center;color:var(--warn)">Peeking at '+esc(person(pid).name)+'\'s card — tap your name to stamp</div>';
   }
   if(lines.length)h+='<div class="bingo-banner">BINGO'+(lines.length>1?' ×'+lines.length:'')+'!</div>';
-  h+='<div class="bingo-letters" style="grid-template-columns:repeat('+n+',1fr);padding:0 9px">'+lettersFor(n).map(function(x){return'<b>'+x+'</b>';}).join('')+'</div>';
-  h+='<div class="bingo" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){var d=!!getStamp(c,i,pid);
+  h+='<div class="bingo-letters" style="grid-template-columns:repeat('+n+',minmax(0,1fr));padding:0 9px">'+lettersFor(n).map(function(x){return'<b>'+x+'</b>';}).join('')+'</div>';
+  h+='<div class="bingo" style="grid-template-columns:repeat('+n+',minmax(0,1fr))">'+c.cells.map(function(cell,i){var d=!!getStamp(c,i,pid);
     return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(d?' done':'')+(win[i]?' win':'')+'" onclick="openCell(\''+c.id+'\','+i+')">'+cellInner(cell,i,c,pid)+'</div>';}).join('')+'</div>';
   var done=c.cells.filter(function(x,i){return cellDoneFor(c,i,pid);}).length;
   h+='<div class="hint" style="text-align:center;margin-top:8px">'+done+' / '+(n*n)+' stamped · tap a square when you spot it</div>';
@@ -1661,7 +1665,7 @@ function rCM(){
     '<button class="btn btn-s" onclick="_cmCap();if(confirm(\'Replace every unlocked square with new random picks?\')){fillCard(CM.c,\'open\','+live+');rCM();}">🎲 Re-roll all</button>'+
     '<button class="btn btn-s" onclick="_cmCap();CM.c.cells=CM.c.cells.map(function(x,i){return x.t===\'free\'||x.lock||('+live+'&&cellStampedAny(CM.c,i))?x:{t:\'empty\'};});rCM()">Clear unlocked</button></div>';
   h+='<div class="hint" style="margin:8px 0 4px"><b>Shuffle order</b> only moves squares around — nothing gets replaced. <b>Fill empty</b> puts your custom squares in first, then random picks. Tap a square to set it by hand; 🔒 squares never move.</div>';
-  h+='<div class="bingo size-'+n+'" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+'" onclick="_cmCap();editCell('+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
+  h+='<div class="bingo size-'+n+'" style="grid-template-columns:repeat('+n+',minmax(0,1fr))">'+c.cells.map(function(cell,i){return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+'" onclick="_cmCap();editCell('+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveCard()">Save card</button></div>';
   var st=$('mo-l1')&&$('mo-l1').querySelector('.mo-b')?$('mo-l1').querySelector('.mo-b').scrollTop:0;
   openModal(h,1);var b=$('mo-l1').querySelector('.mo-b');if(b)b.scrollTop=st;
