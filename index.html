@@ -117,6 +117,15 @@ textarea.m-in{min-height:64px;resize:vertical}
 .inv-name{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .inv-meta{display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;color:var(--inkFaint);min-height:15px}
 .ribbon{position:absolute;top:8px;left:-2px;z-index:3;padding:2px 8px 2px 6px;font-size:10px;font-weight:700;color:#fff;border-radius:0 5px 5px 0;background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+/* multi-select */
+.inv-card.sel{outline:3px solid var(--accent1);outline-offset:-3px}
+.sticker .inv-card.sel{outline-offset:2px;border-radius:12px}
+.selbox{position:absolute;top:6px;right:6px;z-index:4;width:24px;height:24px;border-radius:50%;border:2px solid var(--accent1);background:var(--paper);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+.inv-card.sel .selbox{background:var(--accent1);color:var(--paper)}
+.selbar{position:fixed;left:8px;right:8px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:62;display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:14px;background:var(--paper);border:1px solid var(--paperGrid);box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.bc .others{position:absolute;top:2px;right:2px;display:flex;gap:1px}
+.score{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:6px 0}
+.score .chip{cursor:pointer}
 .ribbon.none{background:linear-gradient(135deg,#9ca3af,#6b7280)}
 /* sticker (dashed outline) mode */
 .sticker .inv-card{background:transparent;border:none;box-shadow:none;overflow:visible}
@@ -234,8 +243,8 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.2';
-var COLLS=['people','categories','items','sightings','places','cards','meta'];
+var APP_VERSION='v1.3';
+var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
 
 // ── utils ──
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
@@ -286,7 +295,7 @@ var DEFAULT_PROMPT='Turn this photo into a clean e-commerce product photo of the
 '- Clothing (shirts, tees, hoodies, jackets, sweaters, pants, jeans, shorts, dresses): show it laid perfectly flat, front-facing, neatly smoothed out in its natural garment shape, sleeves/legs straight and symmetrical, like a flat-lay on an online store product page.\n'+
 '- Shoes: clean side profile of a single shoe (or the pair if both are visible). Bags, toys, gadgets and other objects: straight-on 3/4 product angle.\n'+
 '- Square 1:1 framing with generous white margin around the item. No text, watermark or props.';
-var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{}};
+var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{},stamps:{},folders:{}};
 var ST_KEY='ib_state';
 function ld(){
   try{var d=JSON.parse(localStorage.getItem(ST_KEY)||'null');if(d)COLLS.forEach(function(c){if(d[c])S[c]=d[c];});S._ts=d&&d._ts||0;}catch(e){console.warn('ld',e);}
@@ -329,6 +338,8 @@ function person(id){return S.people[id];}
 function peopleList(){return vals(S.people).sort(function(a,b){return(a.order||0)-(b.order||0)||a.name.localeCompare(b.name);});}
 function catList(){return vals(S.categories).sort(function(a,b){return(a.order||0)-(b.order||0)||a.name.localeCompare(b.name);});}
 function cat(id){return S.categories[id];}
+function folderList(){return vals(S.folders).sort(function(a,b){return(a.order||0)-(b.order||0)||a.name.localeCompare(b.name);});}
+function itemFolders(it){return(it.folders||[]).filter(function(f){return S.folders[f];});}
 function itemSightings(itemId){return vals(S.sightings).filter(function(s){return s.item===itemId;}).sort(function(a,b){return(b.date||'').localeCompare(a.date||'')||(b.u||0)-(a.u||0);});}
 var _sCache=null;
 function sightIndex(){
@@ -444,7 +455,7 @@ function fbOnValue(snap){
   });
   _saveKnown();
   FB.firstPull=true;FB.lastOk=now();
-  if(changed){S._ts=now();_svNow();scheduleRender();}
+  if(changed){S._ts=now();_svNow();scheduleRender();if(typeof watchRemoteBingos==='function')watchRemoteBingos();}
   if(Object.keys(DIRTY).length)fbScheduleWrite();
   fbPumpImages();
   syncBadge();
@@ -971,12 +982,12 @@ function render(){
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
   h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():viewItems())+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
-  h+='<button class="fab" onclick="quickSpot()">📷 Spot</button>';
+  if(!SEL)h+='<button class="fab" onclick="quickSpot()">📷 Spot</button>';
   $('app').innerHTML=h;
   hydrate($('app'));syncBadge();
   window.scrollTo(0,y);
 }
-function setTab(t){L.tab=t;svL();window.scrollTo(0,0);render();}
+function setTab(t){SEL=null;L.tab=t;svL();window.scrollTo(0,0);render();}
 function cycleMe(){var ps=peopleList();var i=ps.findIndex(function(p){return p.id===L.me;});L.me=ps[(i+1)%ps.length].id;svL();render();toast('Spotting as '+person(L.me).name);}
 
 // ════════════ ITEMS TAB ════════════
@@ -985,19 +996,27 @@ function viewItems(){
   var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search items…" value="'+esc(L.search)+'" oninput="L.search=this.value;svL();debounce(\'srch\',renderItemsGrid,200)" style="flex:1">'+
     '<select class="m-in" style="width:auto;padding:9px 6px;font-size:13px" onchange="L.sort=this.value;svL();render()">'+
     [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
-    '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button></div>';
+    '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button>'+
+    '<button class="icon-btn" title="Select several" onclick="selToggle()">'+(SEL?'✖️':'☑️')+'</button></div>';
+  var ff=L.folderFilter||'all';if(ff!=='all'&&ff!=='none'&&!S.folders[ff])ff=L.folderFilter='all';
+  h+='<div class="chips"><button class="chip'+(ff==='all'?' on':'')+'" onclick="L.folderFilter=\'all\';svL();render()">📁 All folders</button>'+
+    folderList().map(function(f){var n=vals(S.items).filter(function(i){return(i.folders||[]).indexOf(f.id)>=0;}).length;return'<button class="chip'+(ff===f.id?' on':'')+'" onclick="L.folderFilter=\''+f.id+'\';svL();render()">'+esc(f.icon||'📁')+' '+esc(f.name)+' <span style="opacity:.55">'+n+'</span></button>';}).join('')+
+    (folderList().length?'<button class="chip'+(ff==='none'?' on':'')+'" onclick="L.folderFilter=\'none\';svL();render()">Unfiled</button>':'')+
+    '<button class="chip" onclick="openFolderManager()">＋ / ⚙</button><button class="chip" onclick="openDJImport()">📓 From journal</button></div>';
   h+='<div class="chips"><button class="chip'+(L.catFilter==='all'?' on':'')+'" onclick="L.catFilter=\'all\';svL();render()">All</button>'+
     catList().map(function(c){return'<button class="chip'+(L.catFilter===c.id?' on':'')+'" onclick="L.catFilter=\''+c.id+'\';svL();render()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+
     '<button class="chip" onclick="openCatManager()">＋ / ⚙</button></div>';
   h+='<div class="chips"><button class="chip'+(L.personFilter==='all'?' on':'')+'" onclick="L.personFilter=\'all\';svL();render()">Everyone</button>'+
     peopleList().map(function(p){return'<button class="chip'+(L.personFilter===p.id?' on':'')+'" onclick="L.personFilter=\''+p.id+'\';svL();render()">'+pdot(p.id,1)+esc(p.name)+'</button>';}).join('')+'</div>';
   h+='<div id="items-grid">'+itemsGridHTML()+'</div>';
+  if(SEL)h+=selBarHTML();
   return h;
 }
 function filteredItems(){
   var idx=sightIndex().by,q=(L.search||'').toLowerCase().trim();
   var list=vals(S.items).filter(function(it){
     if(L.catFilter!=='all'&&it.cat!==L.catFilter)return false;
+    var ff=L.folderFilter||'all';if(ff==='none'&&itemFolders(it).length)return false;if(ff!=='all'&&ff!=='none'&&(it.folders||[]).indexOf(ff)<0)return false;
     if(q&&(it.name||'').toLowerCase().indexOf(q)<0&&(it.notes||'').toLowerCase().indexOf(q)<0)return false;
     if(L.personFilter!=='all'&&!(idx[it.id]||[]).some(function(s){return(s.by||[]).indexOf(L.personFilter)>=0;}))return false;
     if(L.sort==='never'&&(idx[it.id]||[]).length)return false;
@@ -1018,7 +1037,8 @@ function itemsGridHTML(){
   return '<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(function(it){
     var ss=idx[it.id]||[],c=cat(it.cat);
     var who={};ss.forEach(function(s){(s.by||[]).forEach(function(p){who[p]=1;});});
-    return'<div class="inv-card" onclick="openItemModal(\''+it.id+'\')">'+
+    var sel=SEL&&SEL[it.id];
+    return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(SEL?'selTap(\''+it.id+'\')':'openItemModal(\''+it.id+'\')')+'">'+(SEL?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
       '<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>'+
       '<div class="inv-imgw">'+(it.img?imgHTML(it.img,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+(c?c.icon:'📦')+'</div>')+'</div>'+
       '<div class="inv-info"><div class="inv-name">'+esc(it.name||'Untitled')+'</div><div class="inv-meta">'+(c?c.icon+' ':'')+(ss.length?fmtDate(ss[0].date):'')+
@@ -1026,6 +1046,31 @@ function itemsGridHTML(){
   }).join('')+'</div>';
 }
 function renderItemsGrid(){var g=$('items-grid');if(g){g.innerHTML=itemsGridHTML();hydrate(g);}}
+// ── multi-select: move to folders / set category / delete ──
+var SEL=null;
+function selToggle(){SEL=SEL?null:{};render();}
+function selTap(id){if(SEL[id])delete SEL[id];else SEL[id]=1;render();}
+function selIds(){return Object.keys(SEL||{}).filter(function(id){return S.items[id];});}
+function selBarHTML(){var n=selIds().length;
+  return'<div class="selbar"><b>'+n+' selected</b><button class="btn btn-g btn-sm" onclick="filteredItems().forEach(function(i){SEL[i.id]=1;});render()">All</button><div class="spacer"></div>'+
+  '<button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selFolder()">📁 Folder</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selCat()">🗂 Type</button><button class="btn btn-d btn-sm" '+(n?'':'disabled')+' onclick="selDelete()">🗑</button></div>';}
+function selFolder(){
+  var ids=selIds();
+  var h='<div class="mo-h"><h3>📁 Folders for '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint">Add to or remove from folders. An item can be in several folders.</div>';
+  folderList().forEach(function(f){var inN=ids.filter(function(id){return(S.items[id].folders||[]).indexOf(f.id)>=0;}).length;
+    h+='<div class="li"><div class="thumb">'+esc(f.icon||'📁')+'</div><div class="grow"><div class="t">'+esc(f.name)+'</div><div class="s">'+inN+' of '+ids.length+' already in it</div></div>'+
+    '<button class="btn btn-p btn-sm" onclick="selApplyFolder(\''+f.id+'\',1)">Add</button>'+(inN?'<button class="btn btn-s btn-sm" onclick="selApplyFolder(\''+f.id+'\',0)">Remove</button>':'')+'</div>';});
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="newFolder(function(id){selApplyFolder(id,1);})">＋ New folder</button><button class="btn btn-p" onclick="closeModal(1)">Done</button></div>';
+  openModal(h,1);
+}
+function selApplyFolder(fid,add){selIds().forEach(function(id){var it=clone(S.items[id]);var a=it.folders||[];var i=a.indexOf(fid);if(add&&i<0)a.push(fid);if(!add&&i>=0)a.splice(i,1);it.folders=a;put('items',it);});toast(add?'Added to '+S.folders[fid].name:'Removed');selFolder();render();}
+function selCat(){
+  var h='<div class="mo-h"><h3>🗂 Set type</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b"><div class="chips" style="flex-wrap:wrap">'+
+    catList().map(function(c){return'<button class="chip" onclick="selIds().forEach(function(id){var it=clone(S.items[id]);it.cat=\''+c.id+'\';put(\'items\',it);});closeModal(1);render();toast(\'Updated\')">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div></div>';
+  openModal(h,1);
+}
+function selDelete(){var ids=selIds();if(!confirm('Delete '+ids.length+' items and their sightings?'))return;ids.forEach(function(id){deleteItemById(id);});SEL={};render();}
 
 // ════════════ ITEM MODAL ════════════
 var IM=null;
@@ -1039,12 +1084,13 @@ function openItemModal(id,opts){
     if(it.orig&&it.orig!==it.img)IM.vers.push({k:it.orig,label:'Original'});
   }else{
     var defCat=opts.cat||(L.catFilter!=='all'?L.catFilter:'');
-    IM={id:null,isNew:true,f:{id:'it_'+gid(),name:opts.name||'',cat:defCat,notes:''},vers:[],cur:0,ctx:opts.ctx||null,
+    IM={id:null,isNew:true,f:{id:'it_'+gid(),name:opts.name||'',cat:defCat,notes:'',folders:(L.folderFilter&&S.folders[L.folderFilter])?[L.folderFilter]:[]},vers:[],cur:0,ctx:opts.ctx||null,
       first:{date:tod(),by:[L.me],place:L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:'',note:''},logFirst:true};
   }
   rItem();
   if(opts.photo)studioAdd(opts.photo,'Photo',true);
 }
+function imFolder(id){var a=IM.f.folders=IM.f.folders||[];var i=a.indexOf(id);if(i>=0)a.splice(i,1);else a.push(id);rItem();}
 function _imCap(){
   if(!IM)return;var e;
   if((e=$('im-name')))IM.f.name=e.value;
@@ -1061,6 +1107,9 @@ function rItem(){
   h+='<div class="m-lbl">Category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){
     return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_imCap();IM.f.cat=\''+c.id+'\';rItem()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+
     '<button class="chip" onclick="_imCap();quickNewCat(function(id){IM.f.cat=id;rItem();})">＋ New</button></div>';
+  h+='<div class="m-lbl">Folders <span class="r hint">any number</span></div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(fo){var on=(f.folders||[]).indexOf(fo.id)>=0;
+    return'<button class="chip'+(on?' on':'')+'" onclick="_imCap();imFolder(\''+fo.id+'\')">'+esc(fo.icon||'📁')+' '+esc(fo.name)+'</button>';}).join('')+
+    '<button class="chip" onclick="_imCap();newFolder(function(id){imFolder(id);})">＋ Folder</button></div>';
   if(isNew){
     var fs=IM.first;
     h+='<div class="sec"><label class="toggle" style="padding:0"><input type="checkbox" '+(IM.logFirst?'checked':'')+' onchange="_imCap();IM.logFirst=this.checked;rItem()"><b>Log a sighting now</b></label>';
@@ -1198,9 +1247,14 @@ function saveItem(){
 function deleteItem(){
   var it=S.items[IM.id];if(!it)return;var ss=itemSightings(it.id);
   if(!confirm('Delete "'+it.name+'" and its '+ss.length+' sighting(s)?'))return;
-  ss.forEach(function(s){if(s.photo)fbDeleteImage(s.photo);del('sightings',s.id);});
-  vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.ref===it.id&&cell.t==='item'){cell.t='empty';cell.ref='';ch=true;}if(cell.done&&cell.done.item===it.id){cell.done=null;ch=true;}});if(ch)put('cards',c);});
-  fbDeleteImage(it.img);fbDeleteImage(it.orig);del('items',it.id);closeModal(1);render();
+  deleteItemById(it.id);closeModal(1);render();
+}
+function deleteItemById(id){
+  var it=S.items[id];if(!it)return;
+  itemSightings(id).forEach(function(s){if(s.photo)fbDeleteImage(s.photo);del('sightings',s.id);});
+  vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.ref===id&&cell.t==='item'){cell.t='empty';cell.ref='';ch=true;}});if(ch)put('cards',c);});
+  vals(S.stamps).forEach(function(st){if(st.item===id)del('stamps',st.id);});
+  fbDeleteImage(it.img);fbDeleteImage(it.orig);del('items',id);
 }
 function quickSpot(){openItemModal(null,{});setTimeout(function(){studioPick('cam');},60);}
 
@@ -1247,7 +1301,7 @@ function saveSighting(){
   if(f.photoD)resizeData(f.photoD,900,'jpeg',0.82).then(function(d){f.photo=imgSave(d);go();});else go();
 }
 function delSighting(){if(!confirm('Delete this sighting?'))return;var s=S.sightings[SM.f.id];if(s&&s.photo)fbDeleteImage(s.photo);
-  vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.done&&cell.done.sid===SM.f.id){cell.done=null;ch=true;}});if(ch)put('cards',c);});
+  vals(S.stamps).forEach(function(st){if(st.sid===SM.f.id)del('stamps',st.id);});
   del('sightings',SM.f.id);closeModal(2);if(IM)rItem();render();}
 
 // ════════════ PLACES ════════════
@@ -1424,38 +1478,57 @@ function syncTap(){
 
 // ════════════════════════════════════════════════════════════════
 //  BINGO
-//  card: {id,name,size,free,cells:[{t:'item'|'cat'|'text'|'free'|'empty',ref,text,lock,done:{d,by,sid,item}}],
-//         pool:{cats:[],items:true,wild:true,prompts:'',fresh:true},lines,created,u}
+//  card: {id,name,size,free,mode:'team'|'race',cells:[{t:'item'|'cat'|'text'|'free'|'empty',ref,text,lock}],pool,created,u}
+//  stamps live in their own collection so two phones stamping at once never overwrite each other:
+//    team: stamps[cardId_i]          race: stamps[cardId_i_personId]
+//    {id,card,cell,pid,d,by:[],sid,item}
 // ════════════════════════════════════════════════════════════════
+var CV={};// per-card "viewing whose card" in race mode
 function lettersFor(n){return n===5?['B','I','N','G','O']:n===4?['B','I','N','G']:['B','I','N'];}
+function isRace(c){return c&&c.mode==='race';}
+function stampKey(c,i,pid){return isRace(c)?c.id+'_'+i+'_'+pid:c.id+'_'+i;}
+function getStamp(c,i,pid){return S.stamps[stampKey(c,i,pid)]||null;}
+function cardStamps(c){return vals(S.stamps).filter(function(s){return s.card===c.id;});}
+function cellDoneFor(c,i,pid){var x=c.cells[i];return !!x&&(x.t==='free'||!!getStamp(c,i,pid));}
+function cellStampedAny(c,i){return cardStamps(c).some(function(s){return s.cell===i;});}
+function viewerOf(c){return isRace(c)?(CV[c.id]&&S.people[CV[c.id]]?CV[c.id]:L.me):'';}
+function bingoLines(c,pid){
+  var n=c.size,L2=[],r,i;
+  for(r=0;r<n;r++){var row=[],col=[];for(i=0;i<n;i++){row.push(r*n+i);col.push(i*n+r);}L2.push(row,col);}
+  var d1=[],d2=[];for(i=0;i<n;i++){d1.push(i*n+i);d2.push(i*n+(n-1-i));}L2.push(d1,d2);
+  return L2.filter(function(l){return l.every(function(ix){return cellDoneFor(c,ix,pid);});});
+}
+function racePlayers(c){var p={};p[L.me]=1;cardStamps(c).forEach(function(s){if(s.pid)p[s.pid]=1;});return Object.keys(p).filter(function(x){return S.people[x];});}
+// one-time migration from v1.0–1.2 cards (stamps stored inside cells)
+function migrateStamps(){
+  vals(S.cards).forEach(function(c){var ch=false;
+    (c.cells||[]).forEach(function(x,i){if(x&&x.done){var id=c.id+'_'+i;if(!S.stamps[id])put('stamps',{id:id,card:c.id,cell:i,pid:'',d:x.done.d,by:x.done.by||[],sid:x.done.sid||'',item:x.done.item||''});delete x.done;ch=true;}});
+    if(!c.mode){c.mode='team';ch=true;}
+    if(ch)put('cards',c);});
+}
 function viewBingo(){
   var cards=vals(S.cards).sort(function(a,b){return(b.created||0)-(a.created||0);});
   var act=L.activeCard&&S.cards[L.activeCard]?S.cards[L.activeCard]:null;
   if(act)return viewCard(act);
   var h='<div class="row" style="margin-bottom:10px"><h2 style="flex:1;font-size:20px">Bingo cards</h2><button class="btn btn-p" onclick="openCardMaker()">＋ New card</button></div>';
-  if(!cards.length)return h+'<div class="empty"><div class="big">🎱</div><b>No cards yet.</b><br>Make a card from your categories — randomize it or fill slots by hand.<br>When you spot something, tap its square to stamp it (and add it as a new item on the spot).</div>';
+  if(!cards.length)return h+'<div class="empty"><div class="big">🎱</div><b>No cards yet.</b><br>Make a card from your categories or your own squares.<br><b>Team</b> cards are filled in together; <b>Race</b> cards give each of you your own stamps on the same squares.</div>';
   h+='<div class="card-list">'+cards.map(function(c){
-    var n=c.size,done=c.cells.filter(function(x){return x.done||x.t==='free';}).length,lines=bingoLines(c).length;
-    return'<div class="card-tile" onclick="L.activeCard=\''+c.id+'\';svL();render()"><div class="mini" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(x){return'<i class="'+(x.t==='free'?'f':x.done?'d':'')+'"></i>';}).join('')+'</div>'+
-      '<div class="grow" style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+esc(c.name)+'</div><div class="hint">'+n+'×'+n+' · '+done+'/'+(n*n)+' stamped'+(lines?' · <b style="color:#d97706">'+lines+' BINGO'+(lines>1?'S':'')+'</b>':'')+'</div></div><span style="font-size:20px">›</span></div>';
+    var n=c.size,pid=isRace(c)?L.me:'';
+    var done=c.cells.filter(function(x,i){return cellDoneFor(c,i,pid);}).length,lines=bingoLines(c,pid).length;
+    return'<div class="card-tile" onclick="L.activeCard=\''+c.id+'\';svL();render()"><div class="mini" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(x,i){return'<i class="'+(x.t==='free'?'f':cellDoneFor(c,i,pid)?'d':'')+'"></i>';}).join('')+'</div>'+
+      '<div class="grow" style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+esc(c.name)+'</div><div class="hint">'+(isRace(c)?'🏁 Race':'👫 Team')+' · '+n+'×'+n+' · '+done+'/'+(n*n)+(isRace(c)?' yours':' stamped')+(lines?' · <b style="color:#d97706">'+lines+' BINGO'+(lines>1?'S':'')+'</b>':'')+'</div></div><span style="font-size:20px">›</span></div>';
   }).join('')+'</div>';
   return h;
 }
-function cellDone(c){return c.t==='free'||!!c.done;}
-function bingoLines(card){
-  var n=card.size,cs=card.cells,L2=[],r,i;
-  for(r=0;r<n;r++){var row=[],col=[];for(i=0;i<n;i++){row.push(r*n+i);col.push(i*n+r);}L2.push(row,col);}
-  var d1=[],d2=[];for(i=0;i<n;i++){d1.push(i*n+i);d2.push(i*n+(n-1-i));}L2.push(d1,d2);
-  return L2.filter(function(l){return l.every(function(ix){return cs[ix]&&cellDone(cs[ix]);});});
-}
-function cellInner(c,i){
+function cellInner(c,i,card,pid){
   if(c.t==='free')return'<div class="bic">⭐</div><div class="bl">FREE</div>';
-  var itemId=c.done&&c.done.item?c.done.item:(c.t==='item'?c.ref:'');
+  var st=card?getStamp(card,i,pid):null;
+  var itemId=st&&st.item?st.item:(c.t==='item'?c.ref:'');
   var it=itemId&&S.items[itemId];
   var h='';
-  if(c.t==='cat'){var k=cat(c.ref);h+='<span class="kind">any</span>';}
+  if(c.t==='cat')h+='<span class="kind">any</span>';
   if(c.t==='text')h+='<span class="kind">✍️</span>';
-  if(c.lock)h+='<span class="lock">🔒</span>';
+  if(c.lock&&!card)h+='<span class="lock">🔒</span>';
   if(it&&it.img)h+=imgHTML(it.img,'',L.sticker?'data-st':'');
   else if(c.t==='cat'){var k2=cat(c.ref);h+='<div class="bic">'+(k2?k2.icon:'❔')+'</div>';}
   else if(c.t==='item'&&it){var k3=cat(it.cat);h+='<div class="bic">'+(k3?k3.icon:'📦')+'</div>';}
@@ -1463,62 +1536,97 @@ function cellInner(c,i){
   else if(c.t==='empty')h+='<div class="bic" style="opacity:.4">＋</div>';
   var label=it?it.name:c.t==='cat'?(cat(c.ref)||{name:'?'}).name:c.t==='text'?c.text:'';
   if(label)h+='<div class="bl">'+esc(label)+'</div>';
-  if(c.done){var p=person((c.done.by||[])[0]);h+='<div class="stamp" style="background:'+(p?p.color:'#f59e0b')+'"></div><div class="by">'+(c.done.by||[]).map(function(x){return pdot(x,1);}).join('')+'</div>';}
+  if(st){var p=person(isRace(card)?pid:(st.by||[])[0]);h+='<div class="stamp" style="background:'+(p?p.color:'#f59e0b')+'"></div><div class="by">'+(st.by||[]).map(function(x){return pdot(x,1);}).join('')+'</div>';}
+  if(card&&isRace(card)){var others=cardStamps(card).filter(function(s){return s.cell===i&&s.pid!==pid;});
+    if(others.length)h+='<div class="others">'+others.map(function(s){return pdot(s.pid,1);}).join('')+'</div>';}
   return h;
 }
 function viewCard(c){
-  var n=c.size,lines=bingoLines(c),win={};lines.forEach(function(l){l.forEach(function(i){win[i]=1;});});
+  var n=c.size,pid=viewerOf(c),race=isRace(c),lines=bingoLines(c,pid),win={};lines.forEach(function(l){l.forEach(function(i){win[i]=1;});});
   var h='<div class="row" style="margin-bottom:4px"><button class="btn btn-s btn-sm" onclick="L.activeCard=\'\';svL();render()">‹ Cards</button><div class="spacer"></div>'+
     '<button class="btn btn-s btn-sm" onclick="openCardMaker(\''+c.id+'\')">✏️ Edit</button><button class="btn btn-s btn-sm" onclick="cardMenu(\''+c.id+'\')">⋯</button></div>';
   h+='<div class="bingo-wrap size-'+n+'"><div class="bingo-title">'+esc(c.name)+'</div>';
+  h+='<div class="hint" style="text-align:center">'+(race?'🏁 Race — everyone stamps their own squares':'👫 Team card — anyone\'s find counts')+'</div>';
+  if(race){
+    h+='<div class="score">'+racePlayers(c).map(function(p){var pp=person(p),cnt=c.cells.filter(function(x,i){return x.t!=='free'&&!!getStamp(c,i,p);}).length,bl=bingoLines(c,p).length;
+      return'<button class="chip'+(p===pid?' on':'')+'" onclick="CV[\''+c.id+'\']=\''+p+'\';render()">'+pdot(p,1)+esc(pp.name)+(p===L.me?' (me)':'')+' · '+cnt+(bl?' · 🎉'+bl:'')+'</button>';}).join('')+'</div>';
+    if(pid!==L.me)h+='<div class="hint" style="text-align:center;color:var(--warn)">Peeking at '+esc(person(pid).name)+'\'s card — tap your name to stamp</div>';
+  }
   if(lines.length)h+='<div class="bingo-banner">BINGO'+(lines.length>1?' ×'+lines.length:'')+'!</div>';
   h+='<div class="bingo-letters" style="grid-template-columns:repeat('+n+',1fr);padding:0 9px">'+lettersFor(n).map(function(x){return'<b>'+x+'</b>';}).join('')+'</div>';
-  h+='<div class="bingo" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){
-    return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(cell.done?' done':'')+(win[i]?' win':'')+'" onclick="openCell(\''+c.id+'\','+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
-  var done=c.cells.filter(cellDone).length;
+  h+='<div class="bingo" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){var d=!!getStamp(c,i,pid);
+    return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(d?' done':'')+(win[i]?' win':'')+'" onclick="openCell(\''+c.id+'\','+i+')">'+cellInner(cell,i,c,pid)+'</div>';}).join('')+'</div>';
+  var done=c.cells.filter(function(x,i){return cellDoneFor(c,i,pid);}).length;
   h+='<div class="hint" style="text-align:center;margin-top:8px">'+done+' / '+(n*n)+' stamped · tap a square when you spot it</div>';
-  // who's winning
-  var tally={};c.cells.forEach(function(x){if(x.done)(x.done.by||[]).forEach(function(p){tally[p]=(tally[p]||0)+1;});});
-  if(Object.keys(tally).length)h+='<div class="row" style="justify-content:center;margin-top:6px;gap:12px">'+Object.keys(tally).map(function(p){var pp=person(p);return pp?'<span class="row" style="gap:4px;font-size:13px;font-weight:700">'+pdot(p)+tally[p]+'</span>':'';}).join('')+'</div>';
+  if(!race){var tally={};cardStamps(c).forEach(function(s){(s.by||[]).forEach(function(p){tally[p]=(tally[p]||0)+1;});});
+    if(Object.keys(tally).length)h+='<div class="row" style="justify-content:center;margin-top:6px;gap:12px">'+Object.keys(tally).map(function(p){var pp=person(p);return pp?'<span class="row" style="gap:4px;font-size:13px;font-weight:700">'+pdot(p)+tally[p]+'</span>':'';}).join('')+'</div>';}
   h+='</div>';
   return h;
 }
 function cardMenu(id){
   var c=S.cards[id];
   var h='<div class="mo-h"><h3>'+esc(c.name)+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
-    '<button class="btn btn-s btn-block" onclick="closeModal(1);reshuffleOpen(\''+id+'\')">🔀 Re-roll unstamped, unlocked squares</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);shuffleCard(\''+id+'\')">🔀 Shuffle positions (keeps every square, just moves them)</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);reshuffleOpen(\''+id+'\')">🎲 Re-roll unstamped, unlocked squares with new picks</button>'+
     '<button class="btn btn-s btn-block" onclick="closeModal(1);duplicateCard(\''+id+'\')">📄 Duplicate as a fresh card</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);switchMode(\''+id+'\')">'+(isRace(c)?'👫 Switch to Team card':'🏁 Switch to Race card')+'</button>'+
     '<button class="btn btn-s btn-block" onclick="closeModal(1);clearStamps(\''+id+'\')">🧽 Clear all stamps (keeps sightings)</button>'+
     '<button class="btn btn-d btn-block" onclick="closeModal(1);deleteCard(\''+id+'\')">🗑️ Delete card</button></div>';
   openModal(h,1);
 }
-function reshuffleOpen(id){var c=clone(S.cards[id]);fillCard(c,true);put('cards',c);render();toast('Re-rolled');}
-function duplicateCard(id){var c=clone(S.cards[id]);c.id='cd_'+gid();c.name+=' (new)';c.created=now();c.cells.forEach(function(x){x.done=null;});c.lines=0;put('cards',c);L.activeCard=c.id;svL();render();}
-function clearStamps(id){if(!confirm('Clear every stamp on this card? Sightings stay in the item log.'))return;var c=S.cards[id];c.cells.forEach(function(x){x.done=null;});c.lines=0;put('cards',c);render();}
-function deleteCard(id){if(!confirm('Delete "'+S.cards[id].name+'"?'))return;del('cards',id);L.activeCard='';svL();render();}
+function shuffleCard(id){var c=clone(S.cards[id]);shufflePositions(c,true);put('cards',c);render();toast('🔀 Shuffled — stamped & locked squares stayed put');}
+function reshuffleOpen(id){var c=clone(S.cards[id]);fillCard(c,'open',true);put('cards',c);render();toast('Re-rolled');}
+function duplicateCard(id){var c=clone(S.cards[id]);c.id='cd_'+gid();c.name+=' (new)';c.created=now();put('cards',c);L.activeCard=c.id;svL();render();}
+function clearStamps(id){if(!confirm('Clear every stamp on this card? Sightings stay in the item log.'))return;cardStamps(S.cards[id]).forEach(function(s){del('stamps',s.id);});render();}
+function deleteCard(id){if(!confirm('Delete "'+S.cards[id].name+'"?'))return;cardStamps(S.cards[id]).forEach(function(s){del('stamps',s.id);});del('cards',id);L.activeCard='';svL();render();}
+function switchMode(id){
+  var c=clone(S.cards[id]),st=cardStamps(c);
+  if(st.length&&!confirm('Switch mode? Existing stamps will be converted.'))return;
+  var toRace=!isRace(c);
+  st.forEach(function(s){del('stamps',s.id);});
+  c.mode=toRace?'race':'team';put('cards',c);
+  st.forEach(function(s){
+    if(toRace)(s.by&&s.by.length?s.by:[L.me]).forEach(function(p){var n=clone(s);n.pid=p;n.id=stampKey(c,s.cell,p);if(!S.stamps[n.id])put('stamps',n);});
+    else{var k=stampKey(c,s.cell,'');var ex=S.stamps[k];if(ex){ex=clone(ex);(s.by||[]).forEach(function(p){if(ex.by.indexOf(p)<0)ex.by.push(p);});put('stamps',ex);}else{var n2=clone(s);n2.pid='';n2.id=k;put('stamps',n2);}}
+  });
+  render();toast(toRace?'🏁 Race card':'👫 Team card');
+}
 
-// ── fill / randomize ──
+// ── fill / randomize / shuffle ──
 function poolFor(c){
   var p=c.pool||{},cats=(p.cats&&p.cats.length)?p.cats:catList().map(function(x){return x.id;});
-  var idx=sightIndex().by,out=[];
-  if(p.items!==false)vals(S.items).forEach(function(it){if(cats.indexOf(it.cat)<0)return;if(p.fresh&&(idx[it.id]||[]).length)return;out.push({t:'item',ref:it.id});});
-  if(p.wild!==false)cats.forEach(function(id){out.push({t:'cat',ref:id});});
-  String(p.prompts||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).forEach(function(s){out.push({t:'text',text:s});});
+  var idx=sightIndex().by,out={text:[],item:[],cat:[]};
+  String(p.prompts||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).forEach(function(s){out.text.push({t:'text',text:s});});
+  if(p.items!==false)vals(S.items).forEach(function(it){if(cats.indexOf(it.cat)<0)return;if(p.fresh&&(idx[it.id]||[]).length)return;out.item.push({t:'item',ref:it.id});});
+  if(p.wild!==false)cats.forEach(function(id){out.cat.push({t:'cat',ref:id});});
   return out;
 }
-function fillCard(c,onlyOpen){
+function _normCells(c){
   var n=c.size,mid=(n%2===1&&c.free)?Math.floor(n*n/2):-1;
   while(c.cells.length<n*n)c.cells.push({t:'empty'});c.cells.length=n*n;
-  c.cells.forEach(function(x,i){if(i===mid){c.cells[i]={t:'free'};}else if(x.t==='free')c.cells[i]={t:'empty'};});
-  var used={};c.cells.forEach(function(x){if(x.lock||x.done)used[x.t+':'+(x.ref||x.text)]=1;});
-  var pool=shuffle(poolFor(c)).filter(function(e){return!used[e.t+':'+(e.ref||e.text)];});
-  // spread wildcards: put specific items/prompts first, then cat wildcards, reshuffle
-  var specific=pool.filter(function(e){return e.t!=='cat';}),wild=pool.filter(function(e){return e.t==='cat';});
-  var open=c.cells.map(function(x,i){return i;}).filter(function(i){var x=c.cells[i];return x.t!=='free'&&!x.lock&&!x.done&&(!onlyOpen||true);});
-  var picks=shuffle(specific.slice(0,open.length).concat(wild).slice(0,open.length));
-  // allow repeated category wildcards if pool is small
-  var wi=0;while(picks.length<open.length&&wild.length){picks.push(wild[wi++%wild.length]);}
-  open.forEach(function(ci,k){c.cells[ci]=picks[k]?Object.assign({},picks[k]):{t:'empty'};});
+  c.cells.forEach(function(x,i){if(i===mid)c.cells[i]={t:'free'};else if(!x||x.t==='free')c.cells[i]={t:'empty'};});
+}
+function _keep(c,i,live){var x=c.cells[i];return x.t==='free'||x.lock||(live&&cellStampedAny(c,i));}
+// which: 'empty' = only fill blank squares, 'open' = replace every unlocked/unstamped square
+function fillCard(c,which,live){
+  _normCells(c);
+  var used={};c.cells.forEach(function(x,i){if(x.t!=='empty'&&(which==='empty'||_keep(c,i,live)))used[x.t+':'+(x.ref||x.text)]=1;});
+  var pool=poolFor(c),fresh=function(a){return shuffle(a).filter(function(e){return!used[e.t+':'+(e.ref||e.text)];});};
+  var slots=c.cells.map(function(x,i){return i;}).filter(function(i){return !_keep(c,i,live)&&(which!=='empty'||c.cells[i].t==='empty');});
+  // your custom squares always go in first, then specific items, then "any ___" wildcards
+  var picks=fresh(pool.text).concat(fresh(pool.item)).slice(0,slots.length);
+  var wild=fresh(pool.cat),wi=0;
+  while(picks.length<slots.length&&wild.length){picks.push(wild[wi%wild.length]);wi++;if(wi>=wild.length*3)break;}
+  picks=shuffle(picks);
+  slots.forEach(function(ci,k){c.cells[ci]=picks[k]?Object.assign({},picks[k]):{t:'empty'};});
+  return c;
+}
+// keep every square, just move them around
+function shufflePositions(c,live){
+  _normCells(c);
+  var slots=c.cells.map(function(x,i){return i;}).filter(function(i){return !_keep(c,i,live);});
+  var content=shuffle(slots.map(function(i){return c.cells[i];}));
+  slots.forEach(function(ci,k){c.cells[ci]=content[k];});
   return c;
 }
 
@@ -1526,84 +1634,101 @@ function fillCard(c,onlyOpen){
 var CM=null;
 function openCardMaker(id){
   if(id&&S.cards[id])CM={c:clone(S.cards[id]),isNew:false};
-  else{CM={c:{id:'cd_'+gid(),name:'Bingo '+(Object.keys(S.cards).length+1),size:5,free:true,cells:[],pool:{cats:[],items:true,wild:true,fresh:false,prompts:''},created:now()},isNew:true};fillCard(CM.c);}
+  else{CM={c:{id:'cd_'+gid(),name:'Bingo '+(Object.keys(S.cards).length+1),size:5,free:true,mode:'team',cells:[],pool:{cats:[],items:true,wild:true,fresh:false,prompts:''},created:now()},isNew:true};fillCard(CM.c,'open');}
   rCM();
 }
 function _cmCap(){var e;if((e=$('cm-name')))CM.c.name=e.value;if((e=$('cm-prompts')))CM.c.pool.prompts=e.value;}
 function rCM(){
-  _cmCap();var c=CM.c,n=c.size,p=c.pool;
+  _cmCap();var c=CM.c,n=c.size,p=c.pool,live=!CM.isNew;
   var h='<div class="mo-h"><h3>'+(CM.isNew?'🎱 New bingo card':'✏️ Edit card')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   h+='<input class="m-in" id="cm-name" value="'+esc(c.name)+'" placeholder="Card name, e.g. Mall Saturday">';
+  h+='<div class="m-lbl">How do we play?</div><div class="seg"><button class="'+(!isRace(c)?'on':'')+'" onclick="_cmCap();cmMode(\'team\')">👫 Team</button><button class="'+(isRace(c)?'on':'')+'" onclick="_cmCap();cmMode(\'race\')">🏁 Race</button></div>';
+  h+='<div class="hint" style="margin-top:4px">'+(isRace(c)?'Same squares for everyone, but each person has their own stamps. First to BINGO wins.':'One shared card. Whoever spots it stamps it for both of you.')+'</div>';
   h+='<div class="m-lbl">Size</div><div class="seg">'+[3,4,5].map(function(s){return'<button class="'+(n===s?'on':'')+'" onclick="cmSize('+s+')">'+s+'×'+s+'</button>';}).join('')+'</div>';
   if(n%2===1)h+='<label class="toggle"><input type="checkbox" '+(c.free?'checked':'')+' onchange="_cmCap();CM.c.free=this.checked;fillCardKeep();rCM()">⭐ Free center square</label>';
-  h+='<div class="m-lbl">Pull from categories <span class="r hint">none selected = all</span></div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){var on=(p.cats||[]).indexOf(k.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="cmCat(\''+k.id+'\')">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="m-lbl">Custom squares <span class="r hint">one per line · always used first</span></div><textarea class="m-in" id="cm-prompts" placeholder="Red sneakers\nSomeone in a Jordan 1\nA corgi\nVintage jacket">'+esc(p.prompts||'')+'</textarea>';
+  h+='<div class="m-lbl">Also pull from categories <span class="r hint">none selected = all</span></div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){var on=(p.cats||[]).indexOf(k.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="cmCat(\''+k.id+'\')">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div>';
   h+='<label class="toggle"><input type="checkbox" '+(p.items!==false?'checked':'')+' onchange="_cmCap();CM.c.pool.items=this.checked">Specific items you\'ve added</label>';
   h+='<label class="toggle" style="padding-left:26px"><input type="checkbox" '+(p.fresh?'checked':'')+' onchange="_cmCap();CM.c.pool.fresh=this.checked">…only ones not spotted yet</label>';
   h+='<label class="toggle"><input type="checkbox" '+(p.wild!==false?'checked':'')+' onchange="_cmCap();CM.c.pool.wild=this.checked">"Any ___" category squares</label>';
-  h+='<div class="m-lbl">Custom squares <span class="r hint">one per line</span></div><textarea class="m-in" id="cm-prompts" placeholder="Red sneakers\nSomeone in a Jordan 1\nA corgi\nVintage jacket">'+esc(p.prompts||'')+'</textarea>';
-  h+='<div class="row" style="margin-top:10px"><button class="btn btn-p" style="flex:1" onclick="_cmCap();fillCard(CM.c);rCM()">🎲 Randomize</button><button class="btn btn-s" onclick="_cmCap();CM.c.cells=CM.c.cells.map(function(x){return x.t===\'free\'?x:{t:\'empty\'};});rCM()">Clear</button></div>';
-  h+='<div class="hint" style="margin:8px 0 4px">Tap a square to set it by hand. 🔒 locked squares stay put when you randomize.</div>';
-  h+='<div class="bingo size-'+n+'" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+(cell.done?' done':'')+'" onclick="_cmCap();editCell('+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px">'+
+    '<button class="btn btn-p" onclick="_cmCap();shufflePositions(CM.c,'+live+');rCM()">🔀 Shuffle order</button>'+
+    '<button class="btn btn-p" onclick="_cmCap();fillCard(CM.c,\'empty\','+live+');rCM()">➕ Fill empty squares</button>'+
+    '<button class="btn btn-s" onclick="_cmCap();if(confirm(\'Replace every unlocked square with new random picks?\')){fillCard(CM.c,\'open\','+live+');rCM();}">🎲 Re-roll all</button>'+
+    '<button class="btn btn-s" onclick="_cmCap();CM.c.cells=CM.c.cells.map(function(x,i){return x.t===\'free\'||x.lock||('+live+'&&cellStampedAny(CM.c,i))?x:{t:\'empty\'};});rCM()">Clear unlocked</button></div>';
+  h+='<div class="hint" style="margin:8px 0 4px"><b>Shuffle order</b> only moves squares around — nothing gets replaced. <b>Fill empty</b> puts your custom squares in first, then random picks. Tap a square to set it by hand; 🔒 squares never move.</div>';
+  h+='<div class="bingo size-'+n+'" style="grid-template-columns:repeat('+n+',1fr)">'+c.cells.map(function(cell,i){return'<div class="bc'+(cell.t==='free'?' free':'')+(cell.t==='empty'?' empty':'')+'" onclick="_cmCap();editCell('+i+')">'+cellInner(cell,i)+'</div>';}).join('')+'</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveCard()">Save card</button></div>';
-  openModal(h,1);
+  var st=$('mo-l1')&&$('mo-l1').querySelector('.mo-b')?$('mo-l1').querySelector('.mo-b').scrollTop:0;
+  openModal(h,1);var b=$('mo-l1').querySelector('.mo-b');if(b)b.scrollTop=st;
 }
+function cmMode(m){if(!CM.isNew&&m!==(CM.c.mode||'team')){closeModal(1);switchMode(CM.c.id);return openCardMaker(CM?CM.c.id:L.activeCard);}CM.c.mode=m;rCM();}
 function cmSize(s){_cmCap();CM.c.size=s;fillCardKeep();rCM();}
 function fillCardKeep(){var c=CM.c,n=c.size,old=c.cells.filter(function(x){return x.t!=='free';});c.cells=[];var mid=(n%2===1&&c.free)?Math.floor(n*n/2):-1;var k=0;for(var i=0;i<n*n;i++){if(i===mid)c.cells.push({t:'free'});else c.cells.push(old[k++]||{t:'empty'});}}
 function cmCat(id){_cmCap();var a=CM.c.pool.cats=CM.c.pool.cats||[];var i=a.indexOf(id);if(i>=0)a.splice(i,1);else a.push(id);rCM();}
-function saveCard(){_cmCap();var c=CM.c;if(!c.name.trim())c.name='Bingo';c.lines=bingoLines(c).length;put('cards',c);L.activeCard=c.id;L.tab='bingo';svL();closeModal(1);render();}
+function saveCard(){_cmCap();var c=CM.c;if(!c.name.trim())c.name='Bingo';put('cards',c);L.activeCard=c.id;L.tab='bingo';svL();closeModal(1);render();}
 // manual square editor (level 2, inside card maker)
 function editCell(i){
   var cell=CM.c.cells[i];
   var h='<div class="mo-h"><h3>Square '+(i+1)+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
   h+='<div style="display:grid;gap:8px">'+
-    '<button class="btn btn-s btn-block" onclick="openItemPicker(function(id){CM.c.cells['+i+']={t:\'item\',ref:id,lock:true};rCM();},{title:\'Pick an item for this square\'})">🏷️ A specific item</button>'+
-    '<div><div class="m-lbl">Any item from a category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){return'<button class="chip'+(cell.t==='cat'&&cell.ref===k.id?' on':'')+'" onclick="CM.c.cells['+i+']={t:\'cat\',ref:\''+k.id+'\',lock:true};closeModal(2);rCM()">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div></div>'+
-    '<div><div class="m-lbl">Custom text</div><div class="row"><input class="m-in" id="ec-text" value="'+esc(cell.t==='text'?cell.text:'')+'" placeholder="e.g. Someone in a Supreme hoodie"><button class="btn btn-p" onclick="var v=$(\'ec-text\').value.trim();if(v){CM.c.cells['+i+']={t:\'text\',text:v,lock:true};closeModal(2);rCM();}">Set</button></div></div>';
+    '<div><div class="m-lbl">Custom text</div><div class="row"><input class="m-in" id="ec-text" value="'+esc(cell.t==='text'?cell.text:'')+'" placeholder="e.g. Someone in a Supreme hoodie"><button class="btn btn-p" onclick="var v=$(\'ec-text\').value.trim();if(v){CM.c.cells['+i+']={t:\'text\',text:v,lock:'+(!!cell.lock)+'};closeModal(2);rCM();}">Set</button></div></div>'+
+    '<button class="btn btn-s btn-block" onclick="openItemPicker(function(id){CM.c.cells['+i+']={t:\'item\',ref:id,lock:'+(!!cell.lock)+'};rCM();},{title:\'Pick an item for this square\'})">🏷️ A specific item</button>'+
+    '<div><div class="m-lbl">Any item from a category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(k){return'<button class="chip'+(cell.t==='cat'&&cell.ref===k.id?' on':'')+'" onclick="CM.c.cells['+i+']={t:\'cat\',ref:\''+k.id+'\',lock:'+(!!cell.lock)+'};closeModal(2);rCM()">'+k.icon+' '+esc(k.name)+'</button>';}).join('')+'</div></div>';
   if(CM.c.size%2===1)h+='<button class="btn btn-s btn-block" onclick="CM.c.cells['+i+']={t:\'free\'};closeModal(2);rCM()">⭐ Make it a free square</button>';
-  h+='<div class="row"><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+'].lock=!CM.c.cells['+i+'].lock;closeModal(2);rCM()">'+(cell.lock?'🔓 Unlock':'🔒 Lock')+'</button><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+']={t:\'empty\'};closeModal(2);rCM()">Empty</button>'+
-    (cell.done?'<button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+'].done=null;closeModal(2);rCM()">Unstamp</button>':'')+'</div></div></div>';
+  h+='<div class="row"><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+'].lock=!CM.c.cells['+i+'].lock;closeModal(2);rCM()">'+(cell.lock?'🔓 Unlock':'🔒 Lock in place')+'</button><button class="btn btn-s" style="flex:1" onclick="CM.c.cells['+i+']={t:\'empty\'};closeModal(2);rCM()">Empty</button></div></div></div>';
   openModal(h,2);
+  setTimeout(function(){var e=$('ec-text');if(e&&cell.t!=='text')e.focus();},80);
 }
 
 // ── playing: tap a square ──
 function openCell(cid,i){
-  var c=S.cards[cid],cell=c.cells[i];
+  var c=S.cards[cid],cell=c.cells[i],pid=viewerOf(c);
   if(cell.t==='free')return toast('Free square ⭐');
+  if(isRace(c)&&pid!==L.me){CV[cid]=L.me;render();return toast('Switched to your card — tap again to stamp');}
   if(cell.t==='empty'){openCardMaker(cid);return setTimeout(function(){editCell(i);},50);}
-  var ctx={card:cid,cell:i};
-  var itemId=cell.done&&cell.done.item?cell.done.item:(cell.t==='item'?cell.ref:'');
+  var ctx={card:cid,cell:i};var cj=JSON.stringify(ctx).replace(/"/g,'&quot;');
+  var st=getStamp(c,i,pid);
+  var itemId=st&&st.item?st.item:(cell.t==='item'?cell.ref:'');
   var it=itemId&&S.items[itemId];
   var title=it?it.name:cell.t==='cat'?'Any '+((cat(cell.ref)||{}).name||''):cell.text;
   var h='<div class="mo-h"><h3>'+esc(title)+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   if(it&&it.img)h+='<div style="text-align:center">'+imgHTML(it.img,'','style="max-width:70%;max-height:30vh" data-st')+'</div>';
-  if(cell.done){
-    var s=S.sightings[cell.done.sid];
-    h+='<div class="sec"><b>Stamped '+fmtDate(cell.done.d)+'</b> by '+(cell.done.by||[]).map(function(p){return(person(p)||{name:'?'}).name;}).join(' & ')+(s&&s.place?' · 📍 '+esc(placeName(s.place)):'')+'</div>';
+  if(isRace(c)){var others=cardStamps(c).filter(function(s){return s.cell===i&&s.pid!==L.me;});
+    if(others.length)h+='<div class="hint" style="text-align:center;margin:4px 0">'+others.map(function(s){return esc((person(s.pid)||{name:'?'}).name)+' got this '+fmtDate(s.d);}).join(' · ')+'</div>';}
+  if(st){
+    var s=S.sightings[st.sid];
+    h+='<div class="sec"><b>Stamped '+fmtDate(st.d)+'</b> by '+(st.by||[]).map(function(p){return(person(p)||{name:'?'}).name;}).join(' & ')+(s&&s.place?' · 📍 '+esc(placeName(s.place)):'')+'</div>';
     h+='</div><div class="mo-f"><button class="btn btn-s" onclick="unstamp(\''+cid+'\','+i+')">Unstamp</button>'+(it?'<button class="btn btn-p" onclick="closeModal(1);openItemModal(\''+it.id+'\')">Open item</button>':'')+'</div>';
     return openModal(h,1);
   }
   if(cell.t==='item'&&it){
     var ss=itemSightings(it.id);
     h+='<div class="hint" style="text-align:center;margin:6px 0">'+(ss.length?'Spotted '+ss.length+'× before · last '+fmtDate(ss[0].date):'Never spotted yet')+'</div>';
-    h+='<div style="display:grid;gap:8px;margin-top:8px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);quickSight(\''+it.id+'\','+JSON.stringify(ctx).replace(/"/g,'&quot;')+')">✅ Spotted it — '+esc(person(L.me).name)+', today</button>'+
-      '<button class="btn btn-s btn-block" onclick="closeModal(1);openSighting(null,{item:\''+it.id+'\',ctx:'+JSON.stringify(ctx).replace(/"/g,'&quot;')+'})">＋ Spotted with details (who / where / photo)</button></div>';
+    h+='<div style="display:grid;gap:8px;margin-top:8px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);quickSight(\''+it.id+'\','+cj+')">✅ Spotted it — '+esc(person(L.me).name)+', today</button>'+
+      '<button class="btn btn-s btn-block" onclick="closeModal(1);openSighting(null,{item:\''+it.id+'\',ctx:'+cj+'})">＋ Spotted with details (who / where / photo)</button></div>';
   }else{
     var k=cell.t==='cat'?cat(cell.ref):null;
-    h+='<div style="display:grid;gap:8px;margin-top:4px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);openItemModal(null,{cat:\''+(k?k.id:'')+'\',name:\''+(cell.t==='text'?esc(jsq(cell.text)):'')+'\',ctx:'+JSON.stringify(ctx).replace(/"/g,'&quot;')+'});setTimeout(function(){studioPick(\'cam\');},60)">📷 Snap it → new item</button>'+
-      '<button class="btn btn-s btn-block" onclick="cellLinkExisting(\''+cid+'\','+i+')">🏷️ It\'s an item I already have</button></div>';
-    if(k){var inCat=vals(S.items).filter(function(x){return x.cat===k.id;});if(inCat.length)h+='<div class="m-lbl">Quick pick from '+esc(k.name)+'</div><div class="pick-grid">'+inCat.slice(0,24).map(function(x){return'<div class="pick" onclick="closeModal(1);quickSight(\''+x.id+'\','+JSON.stringify(ctx).replace(/"/g,'&quot;')+')">'+(x.img?imgHTML(x.img):'<div class="thumb">'+k.icon+'</div>')+'<div>'+esc(x.name)+'</div></div>';}).join('')+'</div>';}
+    h+='<div style="display:grid;gap:8px;margin-top:4px"><button class="btn btn-p btn-block" style="padding:14px;font-size:16px" onclick="closeModal(1);openItemModal(null,{cat:\''+(k?k.id:'')+'\',name:\''+(cell.t==='text'?esc(jsq(cell.text)):'')+'\',ctx:'+cj+'});setTimeout(function(){studioPick(\'cam\');},60)">📷 Snap it → new item</button>'+
+      '<button class="btn btn-s btn-block" onclick="cellLinkExisting(\''+cid+'\','+i+')">🏷️ It\'s an item I already have</button>'+
+      '<button class="btn btn-s btn-block" onclick="closeModal(1);stampNoItem(\''+cid+'\','+i+')">✅ Just stamp it (no item)</button></div>';
+    if(k){var inCat=vals(S.items).filter(function(x){return x.cat===k.id;});if(inCat.length)h+='<div class="m-lbl">Quick pick from '+esc(k.name)+'</div><div class="pick-grid">'+inCat.slice(0,24).map(function(x){return'<div class="pick" onclick="closeModal(1);quickSight(\''+x.id+'\','+cj+')">'+(x.img?imgHTML(x.img):'<div class="thumb">'+k.icon+'</div>')+'<div>'+esc(x.name)+'</div></div>';}).join('')+'</div>';}
   }
   h+='</div>';
   openModal(h,1);
 }
 function cellLinkExisting(cid,i){var cell=S.cards[cid].cells[i];openItemPicker(function(id){closeModal(1);quickSight(id,{card:cid,cell:i});},{title:'Which item did you spot?',cat:cell.t==='cat'?cell.ref:'all'});}
-function unstamp(cid,i){var c=S.cards[cid];c.cells[i].done=null;c.lines=bingoLines(c).length;put('cards',c);closeModal(1);render();}
+function stampNoItem(cid,i){fulfilCell(cid,i,'',{id:'',date:tod(),by:[L.me]});}
+function unstamp(cid,i){var c=S.cards[cid],st=getStamp(c,i,viewerOf(c));if(st)del('stamps',st.id);closeModal(1);render();}
 function fulfilCell(cid,i,itemId,s){
   var c=S.cards[cid];if(!c||!c.cells[i])return;
-  var before=c.lines||bingoLines(c).length;
-  c.cells[i].done={d:s.date||tod(),by:(s.by||[L.me]).slice(),sid:s.id,item:itemId};
-  var after=bingoLines(c).length;c.lines=after;put('cards',c);
-  if(s&&!s.card){s.card=cid;put('sightings',s);}
+  var who=(s.by&&s.by.length?s.by:[L.me]).slice();
+  var me=isRace(c)?L.me:'';
+  var before=bingoLines(c,me).length;
+  var pids=isRace(c)?who:[''];
+  pids.forEach(function(p){var k=stampKey(c,i,p);if(S.stamps[k])return;put('stamps',{id:k,card:cid,cell:i,pid:p,d:s.date||tod(),by:isRace(c)?[p]:who,sid:s.id||'',item:itemId||''});});
+  var after=bingoLines(c,me).length;
+  if(s&&s.id&&!s.card&&S.sightings[s.id]){var s2=clone(S.sightings[s.id]);s2.card=cid;put('sightings',s2);}
   L.activeCard=cid;L.tab='bingo';svL();render();
   if(after>before)celebrate(after);
 }
@@ -1613,6 +1738,33 @@ function celebrate(n){
   toast('🎉 BINGO'+(n>1?' ×'+n:'')+'!',3000);
   try{navigator.vibrate&&navigator.vibrate([60,40,120]);}catch(e){}
 }
+// notice when the other phone gets a bingo
+var _seenLines={};
+function watchRemoteBingos(){
+  vals(S.cards).forEach(function(c){var ps=isRace(c)?racePlayers(c):[''];ps.forEach(function(p){var k=c.id+'|'+p,n=bingoLines(c,p).length;
+    if(_seenLines[k]!=null&&n>_seenLines[k]&&p!==L.me&&p!=='')toast('🎉 '+(person(p)||{name:'Someone'}).name+' got BINGO on '+c.name+'!',4000);_seenLines[k]=n;});});
+}
+
+// ════════════ FOLDERS ════════════
+function newFolder(cb){var n=prompt('Folder name (e.g. Mall finds, Wishlist, Angela\'s picks):');if(!n)return;var ic=prompt('Emoji for '+n+':','📁')||'📁';
+  var f=put('folders',{id:'f_'+gid(),name:n.trim(),icon:ic.trim(),order:Object.keys(S.folders).length});render();cb&&cb(f.id);}
+function openFolderManager(){
+  var h='<div class="mo-h"><h3>📁 Folders</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint" style="margin-bottom:6px">Folders sit on top of item types — an item can be in as many folders as you like. Use ☑️ on the Items tab to file several at once.</div>';
+  var fl=folderList();
+  if(!fl.length)h+='<div class="empty" style="padding:16px">No folders yet.</div>';
+  fl.forEach(function(f,ix){var n=vals(S.items).filter(function(i){return(i.folders||[]).indexOf(f.id)>=0;}).length;
+    h+='<div class="li"><input class="m-in" style="width:52px;text-align:center;font-size:20px;padding:6px" value="'+esc(f.icon||'📁')+'" onchange="fSet(\''+f.id+'\',\'icon\',this.value)">'+
+    '<div class="grow"><input class="m-in" value="'+esc(f.name)+'" onchange="fSet(\''+f.id+'\',\'name\',this.value)"><div class="hint" style="margin-top:2px">'+n+' item'+(n===1?'':'s')+'</div></div>'+
+    '<button class="btn btn-g btn-sm" '+(ix?'':'disabled')+' onclick="fMove(\''+f.id+'\',-1)">↑</button><button class="btn btn-g" onclick="fDel(\''+f.id+'\')">🗑</button></div>';});
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="newFolder(function(){openFolderManager();})">＋ New folder</button><button class="btn btn-p" onclick="closeModal(2);render();if(IM)rItem();">Done</button></div>';
+  openModal(h,2);
+}
+function fSet(id,k,v){var f=clone(S.folders[id]);f[k]=v.trim();put('folders',f);render();}
+function fMove(id,d){var fl=folderList(),i=fl.findIndex(function(f){return f.id===id;}),j=i+d;if(j<0||j>=fl.length)return;var t=fl[i];fl[i]=fl[j];fl[j]=t;fl.forEach(function(f,k){if(f.order!==k){var x=clone(f);x.order=k;put('folders',x);}});openFolderManager();render();}
+function fDel(id){if(!confirm('Delete folder "'+S.folders[id].name+'"? Items stay, they just leave this folder.'))return;
+  vals(S.items).forEach(function(it){var a=it.folders||[];if(a.indexOf(id)>=0){var x=clone(it);x.folders=a.filter(function(f){return f!==id;});put('items',x);}});
+  del('folders',id);if(L.folderFilter===id){L.folderFilter='all';svL();}openFolderManager();render();}
 
 // ════════════ MANAGERS ════════════
 function quickNewCat(cb){var n=prompt('New category name (e.g. Hats):');if(!n)return;var ic=prompt('Emoji for '+n+':','🏷️')||'🏷️';
@@ -1668,6 +1820,7 @@ function openSettings(sec){
       '<div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="fbConnectForm()">Connect</button><button class="btn btn-s" onclick="importFile()">📂 Import settings file</button></div>';
   }
   h+='</div>';
+  h+='<div class="sec"><h4>📓 Decade Journal</h4><div class="hint">Pick specific items from your journal (same room) and bring them in with their photos.</div><div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="closeModal(1);openDJImport()">📥 Import journal items…</button></div></div>';
   // places
   var dj=djStore();
   h+='<div class="sec"><h4>📍 Place search</h4><div class="hint">Uses a Google Places API key (the same one Decade Journal uses). Without one, it falls back to free OpenStreetMap search, which misses a lot of stores.</div>'+
@@ -1733,7 +1886,7 @@ function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-co
   ld();
   var start=function(){restoreLocalSettings(function(){applyTheme();start2();});};
   var start2=function(){
-    seedDefaults();adoptSyncedKeys();render();
+    seedDefaults();migrateStamps();adoptSyncedKeys();render();watchRemoteBingos();
     var cfg=fbCfg(),room=fbRoom();
     if(cfg&&room&&localStorage.getItem('ib_fb_room'))fbInit(cfg,room);
     checkSharedImage();
@@ -1755,6 +1908,112 @@ function importDJPlacesLocal(){
   var n=0,t=now();djPlaces().forEach(function(p){if(vals(S.places).some(function(x){return x.name.toLowerCase()===p.name.toLowerCase()&&(x.address||'')===(p.address||'');}))return;
     var id='pl_'+gid();S.places[id]={id:id,name:p.name,address:p.address||'',lat:p.lat||null,lng:p.lng||null,u:t};dirty('places',id);n++;});
   sv();toast(n+' places imported');openSettings();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  IMPORT FROM DECADE JOURNAL (same Firebase room: rooms/<room>/data/items)
+//  Pick specific items (search + multiselect), choose type/folders, bring photos along.
+// ════════════════════════════════════════════════════════════════
+var DJI=null;
+function openDJImport(){
+  DJI={items:[],cols:[],q:'',col:'all',sel:{},loading:true,src:'',cat:'',folders:[],colFolders:true,uses:false};
+  rDJI();
+  var fromLocal=function(why){var d=djStore();DJI.items=(d.items||[]).filter(function(i){return i&&i.name;});DJI.cols=d.collections||[];DJI.src='this phone\'s Decade Journal'+(why?' ('+why+')':'');DJI.loading=false;rDJI();};
+  if(FB.connected&&FB.db){
+    var base='rooms/'+FB.room+'/data/';
+    Promise.all([FB.db.ref(base+'items').once('value'),FB.db.ref(base+'collections').once('value')]).then(function(r){
+      var it=r[0].val(),co=r[1].val();it=Array.isArray(it)?it:vals(it||{});co=Array.isArray(co)?co:vals(co||{});
+      if(!it.length)return fromLocal('room has no journal items');
+      DJI.items=it.filter(function(i){return i&&i.name;});DJI.cols=co.filter(Boolean);DJI.src='room “'+FB.room+'”';DJI.loading=false;rDJI();
+    }).catch(function(e){fromLocal('cloud read failed: '+(e.message||e));});
+  }else fromLocal('not connected to sync');
+}
+function _djCol(id){return DJI.cols.find(function(c){return c.id===id;});}
+function _djImported(){var m={};vals(S.items).forEach(function(i){if(i.djId)m[i.djId]=i.id;});return m;}
+function djiList(){var q=DJI.q.toLowerCase().trim();return DJI.items.filter(function(i){
+  if(DJI.col!=='all'&&i.collection!==DJI.col)return false;
+  if(q&&(i.name+' '+(i.notes||'')+' '+(i.tags||[]).join(' ')).toLowerCase().indexOf(q)<0)return false;return true;}).sort(function(a,b){return a.name.localeCompare(b.name);});}
+function rDJI(){
+  var h='<div class="mo-h"><h3>📓 From Decade Journal</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  if(DJI.loading){h+='<div class="empty"><div class="spin" style="margin:0 auto 8px"></div>Reading your journal items…</div></div>';return openModal(h,1);}
+  h+='<div class="hint">'+DJI.items.length+' items from '+esc(DJI.src)+'. Nothing is changed in the journal.</div>';
+  h+='<input class="m-in" id="dji-q" placeholder="Search journal items…" value="'+esc(DJI.q)+'" style="margin-top:8px" oninput="DJI.q=this.value;debounce(\'dji\',djiPaint,200)">';
+  h+='<div class="chips" style="margin-top:6px"><button class="chip'+(DJI.col==='all'?' on':'')+'" onclick="DJI.col=\'all\';rDJI()">All</button>'+DJI.cols.map(function(c){var n=DJI.items.filter(function(i){return i.collection===c.id;}).length;return n?'<button class="chip'+(DJI.col===c.id?' on':'')+'" onclick="DJI.col=\''+c.id+'\';rDJI()">'+esc(c.icon||'')+' '+esc(c.name)+' <span style="opacity:.55">'+n+'</span></button>':'';}).join('')+'</div>';
+  h+='<div id="dji-list">'+djiListHTML()+'</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" id="dji-go" onclick="djiStep2()">Next ('+Object.keys(DJI.sel).length+')</button></div>';
+  openModal(h,1);djiThumbs();
+}
+function djiPaint(){var el=$('dji-list');if(el){el.innerHTML=djiListHTML();djiThumbs();}var b=$('dji-go');if(b)b.textContent='Next ('+Object.keys(DJI.sel).length+')';}
+function djiListHTML(){
+  var list=djiList(),imp=_djImported();
+  if(!list.length)return'<div class="empty" style="padding:20px">No matches.</div>';
+  var allOn=list.every(function(i){return DJI.sel[i.id]||imp[i.id];});
+  return'<div class="row" style="margin:8px 0 2px"><span class="hint" style="flex:1">'+list.length+' shown</span><button class="btn btn-g btn-sm" onclick="djiAll('+(allOn?0:1)+')">'+(allOn?'Select none':'Select all shown')+'</button></div>'+
+  list.slice(0,300).map(function(i){var c=_djCol(i.collection),on=!!DJI.sel[i.id],done=imp[i.id];
+    return'<div class="li" onclick="'+(done?'':'djiTap(\''+i.id+'\')')+'" style="'+(done?'opacity:.5':'')+'"><div class="selbox" style="position:static;flex-shrink:0;'+(on?'background:var(--accent1);color:var(--paper)':'')+'">'+(done?'✓':on?'✓':'')+'</div>'+
+    '<div class="thumb" data-dji="'+i.id+'">'+esc(c&&c.icon||'📦')+'</div><div class="grow"><div class="t">'+esc(i.name)+'</div><div class="s">'+(c?esc(c.name):'')+(done?' · already in Spotted':'')+((i.uses||[]).length?' · '+i.uses.length+' uses':'')+'</div></div></div>';}).join('')+
+  (list.length>300?'<div class="hint">Showing first 300 — search to narrow.</div>':'');
+}
+function djiTap(id){if(DJI.sel[id])delete DJI.sel[id];else DJI.sel[id]=1;djiPaint();}
+function djiAll(on){var imp=_djImported();djiList().forEach(function(i){if(imp[i.id])return;if(on)DJI.sel[i.id]=1;else delete DJI.sel[i.id];});djiPaint();}
+// thumbnails: data/http URLs directly; '__local__'/'__cloud__' → journal's on-phone image store, then the room's image store
+var _djImgCache={};
+function djImage(it,cb){
+  var v=it.image||'';
+  if(_djImgCache[it.id]!==undefined)return cb(_djImgCache[it.id]);
+  var done=function(d){_djImgCache[it.id]=d||null;cb(d||null);};
+  if(v.indexOf('data:')===0)return done(v);
+  if(/^https?:/.test(v))return done(v);
+  var key='item_'+it.id;
+  var fromCloud=function(){if(!FB.connected||!FB.db)return done(null);FB.db.ref('rooms/'+FB.room+'/images/'+key).once('value').then(function(s){done(s.val());}).catch(function(){done(null);});};
+  try{var rq=indexedDB.open('dj_images');rq.onupgradeneeded=function(e){e.target.transaction.abort();};
+    rq.onsuccess=function(e){var db=e.target.result;try{var g=db.transaction('imgs','readonly').objectStore('imgs').get(key);g.onsuccess=function(){if(g.result)done(g.result);else fromCloud();};g.onerror=fromCloud;}catch(x){fromCloud();}};
+    rq.onerror=fromCloud;}catch(x){fromCloud();}
+}
+function djiThumbs(){document.querySelectorAll('[data-dji]').forEach(function(el,ix){if(ix>40)return;var it=DJI.items.find(function(i){return i.id===el.getAttribute('data-dji');});if(!it)return;
+  djImage(it,function(d){if(d&&el.isConnected)el.innerHTML='<img src="'+esc(d)+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px" onerror="this.remove()">';});});}
+function djiStep2(){
+  var ids=Object.keys(DJI.sel);if(!ids.length)return toast('Pick some items first');
+  var h='<div class="mo-h"><h3>Import '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="rDJI()">‹</button></div><div class="mo-b">';
+  h+='<div class="m-lbl">Item type in Spotted</div><div class="chips" style="flex-wrap:wrap"><button class="chip'+(!DJI.cat?' on':'')+'" onclick="DJI.cat=\'\';djiStep2()">Guess from journal collection</button>'+catList().map(function(c){return'<button class="chip'+(DJI.cat===c.id?' on':'')+'" onclick="DJI.cat=\''+c.id+'\';djiStep2()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="m-lbl">Put in folders</div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(f){var on=DJI.folders.indexOf(f.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="var a=DJI.folders,i=a.indexOf(\''+f.id+'\');if(i>=0)a.splice(i,1);else a.push(\''+f.id+'\');djiStep2()">'+esc(f.icon||'📁')+' '+esc(f.name)+'</button>';}).join('')+'<button class="chip" onclick="newFolder(function(id){DJI.folders.push(id);djiStep2();})">＋ Folder</button></div>';
+  h+='<label class="toggle"><input type="checkbox" '+(DJI.colFolders?'checked':'')+' onchange="DJI.colFolders=this.checked">Also make a folder for each journal collection (e.g. “📓 Sneakers”)</label>';
+  h+='<label class="toggle"><input type="checkbox" '+(DJI.uses?'checked':'')+' onchange="DJI.uses=this.checked">Bring journal “use” dates in as sightings</label>';
+  h+='<div class="hint">Photos come along (compressed). Re-importing skips items already brought over.</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="rDJI()">Back</button><button class="btn btn-p" onclick="djiRun()">Import</button></div>';
+  openModal(h,1);
+}
+function _guessCat(djItem){
+  var c=_djCol(djItem.collection),name=((c&&c.name)||'')+' '+djItem.name;name=name.toLowerCase();
+  var cats=catList();
+  var hit=cats.find(function(k){return c&&k.name.toLowerCase()===c.name.toLowerCase();})||
+    cats.find(function(k){return k.name.toLowerCase().split(/[^a-z]+/).filter(function(w){return w.length>3;}).some(function(w){return name.indexOf(w.replace(/s$/,''))>=0;});});
+  if(hit)return hit.id;
+  if(c){var id='c_'+gid();put('categories',{id:id,name:c.name,icon:c.icon||'🏷️',color:'#64748b',hint:'',order:cats.length});return id;}
+  return '';
+}
+function djiRun(){
+  var ids=Object.keys(DJI.sel),imp=_djImported(),todo=ids.filter(function(id){return!imp[id];}).map(function(id){return DJI.items.find(function(i){return i.id===id;});}).filter(Boolean);
+  closeModal(1);toast('Importing '+todo.length+'…',3000);
+  var colFolder={};
+  var n=0;
+  var next=function(){
+    if(!todo.length){DJI=null;render();return toast('✅ Imported '+n+' item'+(n===1?'':'s')+' from Decade Journal',3500);}
+    var d=todo.shift();
+    var folders=DJI.folders.slice();
+    if(DJI.colFolders&&d.collection){var c=_djCol(d.collection);if(c){var fid=colFolder[c.id]||(vals(S.folders).find(function(f){return f.djCol===c.id;})||{}).id;
+      if(!fid){fid='f_'+gid();put('folders',{id:fid,name:c.name,icon:c.icon||'📓',djCol:c.id,order:Object.keys(S.folders).length});}colFolder[c.id]=fid;if(folders.indexOf(fid)<0)folders.push(fid);}}
+    var it={id:'it_'+gid(),name:d.name,cat:DJI.cat||_guessCat(d),folders:folders,notes:d.notes||'',djId:d.id,created:now(),img:''};
+    djImage(d,function(src){
+      var fin=function(k){if(k)it.img=k;put('items',it);
+        if(DJI.uses)(d.uses||[]).forEach(function(dt){if(/^\d{4}-\d{2}-\d{2}/.test(dt))put('sightings',{id:'s_'+gid(),item:it.id,date:dt.slice(0,10),by:[L.me],place:'',note:'from Decade Journal',created:now()});});
+        n++;setTimeout(next,30);};
+      if(!src)return fin('');
+      var p=src.indexOf('data:')===0?Promise.resolve(src):urlToData(src);
+      p.then(function(x){return resizeData(x,800,'webp',0.88);}).then(function(x){fin(imgSave(x));}).catch(function(){fin('');});
+    });
+  };
+  next();
 }
 </script>
 </body>
