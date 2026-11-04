@@ -244,7 +244,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.4';
+var APP_VERSION='v1.4.1';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
 
 // ── utils ──
@@ -2132,6 +2132,7 @@ function idResultsHTML(){
     h+='<div class="sec" style="margin-top:12px;border-color:var(--accent1)"><b>🤔 '+esc(ID.question.q)+'</b><div class="chips" style="flex-wrap:wrap;margin-top:6px">'+
       (ID.question.options||[]).map(function(o,i){return'<button class="chip" onclick="idAnswer('+i+')">'+esc(o)+'</button>';}).join('')+'</div></div>';
   }
+  if(ID.via)h+='<div class="hint" style="margin-top:6px;text-align:right">via '+esc(ID.via)+'</div>';
   h+='<div class="row" style="margin-top:10px"><input class="m-in" id="id-more" placeholder="Not these? Say what\'s different…" onkeydown="if(event.key===\'Enter\')idRefine()"><button class="btn btn-p" onclick="idRefine()">↻</button></div>';
   h+='<div class="hint" style="margin-top:4px">Tip: in Google photos, long-press the right picture → <b>Share → Spotted</b> to use it as the item photo.</div>';
   return h;
@@ -2149,7 +2150,9 @@ function idRun(){
   var user='What I saw:\n'+desc+(ID.excluded.length?'\n\nIt is NOT any of these: '+ID.excluded.join('; '):'');
   var done=function(e,txt){
     ID.busy=false;
-    if(e){ID.results=ID.results&&ID.results.length?ID.results:null;rID();return alert('⚠️ '+(e.message||e));}
+    if(e){ID.results=ID.results&&ID.results.length?ID.results:null;rID();
+      var msg=e.friendly?'Gemini refused every free model this key can use (quota). Usually this means the free daily/minute limit is used up, or this key\'s project has no free tier.\n\nLast error: '+(e.message||'').slice(0,220)+'\n\nTry again in a minute, add a Claude key in ⚙️ → 🔎 Identify, or tap ❓ Save for later.':'⚠️ '+(e.message||e);
+      return setTimeout(function(){alert(msg);},50);}
     var j=null;try{var m=String(txt).match(/\{[\s\S]*\}/);j=JSON.parse(m?m[0]:txt);}catch(x){}
     if(!j){ID.results=[];ID.question=null;rID();return toast('AI reply could not be read — try again');}
     ID.results=(j.candidates||[]).filter(function(c){return c&&c.name;});ID.question=j.question&&j.question.q?j.question:null;rID();
@@ -2165,17 +2168,31 @@ function _claudeID(sys,user,img,cb){
   .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Claude HTTP '+r.status));return j;});})
   .then(function(j){cb(null,(j.content||[]).map(function(b){return b.text||'';}).join(''));}).catch(function(e){cb(e);});
 }
+// Free-tier quotas differ per model and Google Search grounding often has none,
+// so on a quota/404 error walk down a list of cheaper models (without search) until one answers.
 function _geminiID(sys,user,img,cb){
   var parts=[];if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img.split(',')[1]}});parts.push({text:user});
-  var model=(L.geminiTextModel||'gemini-flash-latest').trim();
-  var body={systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:parts}],tools:[{google_search:{}}]};
-  var go=function(b,retried){
-    fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},body:JSON.stringify(b)})
-    .then(function(r){return r.json().then(function(j){if(!r.ok){var m=(j.error&&j.error.message)||('Gemini HTTP '+r.status);
-      if(!retried&&/search|tool|grounding/i.test(m)){delete b.tools;return go(b,true);}throw new Error(m);}
-      var p=((j.candidates||[])[0]||{}).content;cb(null,(p&&p.parts||[]).map(function(x){return x.text||'';}).join(''));});}).catch(function(e){cb(e);});
-  };
-  go(body,false);
+  var first=(L.geminiTextModel||'gemini-flash-latest').trim();
+  var chain=[[first,true],[first,false]];
+  [L.geminiTextOK,'gemini-flash-lite-latest','gemini-2.5-flash','gemini-2.5-flash-lite','gemini-flash-latest'].forEach(function(m){if(m&&!chain.some(function(c){return c[0]===m&&!c[1];}))chain.push([m,false]);});
+  if(L.geminiTextOK&&L.geminiTextOK!==first)chain.unshift([L.geminiTextOK,false]);// start with what worked last time
+  var i=0,lastErr='';
+  (function go(){
+    if(i>=chain.length){var e=new Error(lastErr);e.friendly=true;return cb(e);}
+    var m=chain[i][0],useSearch=chain[i][1];i++;
+    var body={systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:parts}]};
+    if(useSearch)body.tools=[{google_search:{}}];else body.generationConfig={responseMimeType:'application/json'};
+    fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(j){
+      if(!r.ok){lastErr=(j.error&&j.error.message)||('Gemini HTTP '+r.status);
+        if(r.status===429||r.status===404||r.status===400||r.status===503){console.warn('Gemini',m,useSearch?'+search':'',r.status,lastErr);return go();}
+        throw new Error(lastErr);}
+      var p=((j.candidates||[])[0]||{}).content,txt=(p&&p.parts||[]).map(function(x){return x.text||'';}).join('');
+      if(!txt){lastErr='empty reply from '+m;return go();}
+      if(L.geminiTextOK!==m){L.geminiTextOK=m;svL();}
+      ID.via=m+(useSearch?' + Google Search':'');
+      cb(null,txt);});}).catch(function(e){lastErr=e.message||String(e);go();});
+  })();
 }
 function idPick(i){
   var c=ID.results[i];
