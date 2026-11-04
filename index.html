@@ -58,6 +58,7 @@ input,select,textarea{font-family:inherit;color:var(--ink)}
 .tabbar button.on .ti{transform:scale(1.1)}
 .fab{position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:61;border:none;border-radius:28px;background:var(--accent1);color:var(--paper);font-weight:700;font-size:15px;padding:14px 20px;box-shadow:0 6px 18px rgba(0,0,0,.25);display:flex;align-items:center;gap:6px}
 .fab:active{transform:scale(.96)}
+.fab2{bottom:calc(140px + env(safe-area-inset-bottom));padding:12px 14px;font-size:18px;background:var(--paper);color:var(--ink);border:1px solid var(--paperGrid)}
 .content{padding:10px 12px 20px;flex:1}
 
 /* ── Controls ── */
@@ -243,7 +244,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.3';
+var APP_VERSION='v1.4';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders'];
 
 // ── utils ──
@@ -263,11 +264,11 @@ function clone(o){return JSON.parse(JSON.stringify(o));}
 // ── local settings (never synced unless noted) ──
 var LS_KEY='ib_local';
 var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all',sort:'recent',search:'',calY:new Date().getFullYear(),calM:new Date().getMonth(),
-  geminiKey:'',openaiKey:'',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
+  geminiKey:'',openaiKey:'',claudeKey:'',claudeModel:'claude-sonnet-5-5',geminiTextModel:'gemini-flash-latest',idProvider:'auto',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
   bgModel:'isnet_fp16',autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
 function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
-var SETTING_KEYS=['gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+var SETTING_KEYS=['claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
 // If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
 function restoreLocalSettings(cb){
   if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
@@ -982,7 +983,7 @@ function render(){
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
   h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():viewItems())+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
-  if(!SEL)h+='<button class="fab" onclick="quickSpot()">📷 Spot</button>';
+  if(!SEL)h+='<button class="fab fab2" onclick="openIdentify()" title="Describe something you couldn\'t photograph">🔎</button><button class="fab" onclick="quickSpot()">📷 Spot</button>';
   $('app').innerHTML=h;
   hydrate($('app'));syncBadge();
   window.scrollTo(0,y);
@@ -998,9 +999,11 @@ function viewItems(){
     [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
     '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button>'+
     '<button class="icon-btn" title="Select several" onclick="selToggle()">'+(SEL?'✖️':'☑️')+'</button></div>';
-  var ff=L.folderFilter||'all';if(ff!=='all'&&ff!=='none'&&!S.folders[ff])ff=L.folderFilter='all';
+  var ff=L.folderFilter||'all';if(ff!=='all'&&ff!=='none'&&ff!=='mystery'&&!S.folders[ff])ff=L.folderFilter='all';
+  var nMys=vals(S.items).filter(function(i){return i.mystery;}).length;
   h+='<div class="chips"><button class="chip'+(ff==='all'?' on':'')+'" onclick="L.folderFilter=\'all\';svL();render()">📁 All folders</button>'+
     folderList().map(function(f){var n=vals(S.items).filter(function(i){return(i.folders||[]).indexOf(f.id)>=0;}).length;return'<button class="chip'+(ff===f.id?' on':'')+'" onclick="L.folderFilter=\''+f.id+'\';svL();render()">'+esc(f.icon||'📁')+' '+esc(f.name)+' <span style="opacity:.55">'+n+'</span></button>';}).join('')+
+    (nMys?'<button class="chip'+(ff==='mystery'?' on':'')+'" onclick="L.folderFilter=\'mystery\';svL();render()">❓ To identify <span style="opacity:.55">'+nMys+'</span></button>':'')+
     (folderList().length?'<button class="chip'+(ff==='none'?' on':'')+'" onclick="L.folderFilter=\'none\';svL();render()">Unfiled</button>':'')+
     '<button class="chip" onclick="openFolderManager()">＋ / ⚙</button><button class="chip" onclick="openDJImport()">📓 From journal</button></div>';
   h+='<div class="chips"><button class="chip'+(L.catFilter==='all'?' on':'')+'" onclick="L.catFilter=\'all\';svL();render()">All</button>'+
@@ -1016,7 +1019,7 @@ function filteredItems(){
   var idx=sightIndex().by,q=(L.search||'').toLowerCase().trim();
   var list=vals(S.items).filter(function(it){
     if(L.catFilter!=='all'&&it.cat!==L.catFilter)return false;
-    var ff=L.folderFilter||'all';if(ff==='none'&&itemFolders(it).length)return false;if(ff!=='all'&&ff!=='none'&&(it.folders||[]).indexOf(ff)<0)return false;
+    var ff=L.folderFilter||'all';if(ff==='none'&&itemFolders(it).length)return false;if(ff==='mystery'&&!it.mystery)return false;if(ff!=='all'&&ff!=='none'&&ff!=='mystery'&&(it.folders||[]).indexOf(ff)<0)return false;
     if(q&&(it.name||'').toLowerCase().indexOf(q)<0&&(it.notes||'').toLowerCase().indexOf(q)<0)return false;
     if(L.personFilter!=='all'&&!(idx[it.id]||[]).some(function(s){return(s.by||[]).indexOf(L.personFilter)>=0;}))return false;
     if(L.sort==='never'&&(idx[it.id]||[]).length)return false;
@@ -1039,7 +1042,7 @@ function itemsGridHTML(){
     var who={};ss.forEach(function(s){(s.by||[]).forEach(function(p){who[p]=1;});});
     var sel=SEL&&SEL[it.id];
     return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(SEL?'selTap(\''+it.id+'\')':'openItemModal(\''+it.id+'\')')+'">'+(SEL?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
-      '<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>'+
+      (it.mystery?'<div class="ribbon" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)">❓ ID me</div>':'<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>')+
       '<div class="inv-imgw">'+(it.img?imgHTML(it.img,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+(c?c.icon:'📦')+'</div>')+'</div>'+
       '<div class="inv-info"><div class="inv-name">'+esc(it.name||'Untitled')+'</div><div class="inv-meta">'+(c?c.icon+' ':'')+(ss.length?fmtDate(ss[0].date):'')+
       '<span style="margin-left:auto;display:flex;gap:1px">'+Object.keys(who).map(function(p){return pdot(p,1);}).join('')+'</span></div></div></div>';
@@ -1102,6 +1105,7 @@ function rItem(){
   if(!IM)return;_imCap();
   var f=IM.f,isNew=IM.isNew;
   var h='<div class="mo-h"><h3>'+(isNew?'📷 New item':esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  if(!isNew&&f.mystery)h+='<div class="sec" style="margin:0 0 10px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 8px">'+esc(f.desc||'')+'</div><button class="btn btn-p btn-block" onclick="var id=IM.id;closeModal(1);openIdentify({itemId:id})">🔎 Identify it now</button></div>';
   h+=studioHTML();
   h+='<div class="m-lbl">Name</div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
   h+='<div class="m-lbl">Category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){
@@ -1829,6 +1833,14 @@ function openSettings(sec){
     '<div class="row wrap" style="margin-top:8px">'+(dj.gPlacesKey&&dj.gPlacesKey!==L.gPlacesKey?'<button class="btn btn-s btn-sm" onclick="L.gPlacesKey=djStore().gPlacesKey;svL();openSettings()">Copy key from Decade Journal</button>':'')+
     (djPlaces().length?'<button class="btn btn-s btn-sm" onclick="importDJPlacesLocal()">Import '+djPlaces().length+' Decade Journal places</button>':'')+'</div></div>';
   // AI
+  var djk=djStore().anthropicKey;
+  h+='<div class="sec" id="sec-id"><h4>🔎 Identify from a description</h4><div class="hint">Turns “Jordan with a strap, grey fuzzy tongue” into exact model names. Claude is great at sneakers/streetwear; Gemini\'s text models have a free tier and can search the web.</div>'+
+    '<div class="seg" style="margin-top:8px">'+[['auto','Auto'],['claude','Claude'],['gemini','Gemini']].map(function(o){return'<button class="'+((L.idProvider||'auto')===o[0]?'on':'')+'" onclick="L.idProvider=\''+o[0]+'\';svL();openSettings(\'id\')">'+o[1]+'</button>';}).join('')+'</div>'+
+    '<input class="m-in" type="password" placeholder="Claude API key (sk-ant-…)'+(djk?' — using Decade Journal\'s':'')+'" value="'+esc(L.claudeKey||'')+'" onchange="L.claudeKey=this.value.trim();svL()" style="margin-top:8px">'+
+    (djk&&!L.claudeKey?'<div class="hint" style="margin-top:3px">✅ Using the Claude key from Decade Journal on this phone.</div>':'')+
+    '<div class="row" style="margin-top:6px"><span class="hint" style="width:92px">Claude model</span><input class="m-in" list="cl-models" value="'+esc(L.claudeModel||'claude-sonnet-5-5')+'" onchange="L.claudeModel=this.value.trim();svL()"></div><datalist id="cl-models"><option value="claude-sonnet-5-5"></option><option value="claude-haiku-5-5"></option><option value="claude-opus-5-5"></option></datalist>'+
+    '<div class="row" style="margin-top:6px"><span class="hint" style="width:92px">Gemini model</span><input class="m-in" value="'+esc(L.geminiTextModel||'gemini-flash-latest')+'" onchange="L.geminiTextModel=this.value.trim();svL()"></div>'+
+    '<div class="hint" style="margin-top:3px">Gemini uses the key from 🪄 below.</div></div>';
   h+='<div class="sec" id="sec-ai"><h4>🪄 AI product shots</h4><div class="hint">Your photo is sent straight from this phone to the provider you pick. Keys are stored on this device'+(L.syncKeys?' and synced to your room':'')+'.</div>';
   h+='<div class="seg" style="margin-top:8px"><button class="'+(L.aiProvider!=='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'gemini\')">Google Gemini</button><button class="'+(L.aiProvider==='openai'?'on':'')+'" onclick="setAI(\'aiProvider\',\'openai\')">OpenAI</button></div>';
   if(L.aiProvider!=='openai'){
@@ -1958,20 +1970,42 @@ function djiTap(id){if(DJI.sel[id])delete DJI.sel[id];else DJI.sel[id]=1;djiPain
 function djiAll(on){var imp=_djImported();djiList().forEach(function(i){if(imp[i.id])return;if(on)DJI.sel[i.id]=1;else delete DJI.sel[i.id];});djiPaint();}
 // thumbnails: data/http URLs directly; '__local__'/'__cloud__' → journal's on-phone image store, then the room's image store
 var _djImgCache={};
+// Find a journal item's photo wherever the journal keeps it:
+// main image (data:/http) → extra images → journal's on-phone store (item_<id>, item_<id>_0…) → room's cloud image store
+function _djIdbGet(keys,cb){
+  try{var rq=indexedDB.open('dj_images');
+    rq.onupgradeneeded=function(e){try{e.target.transaction.abort();}catch(x){}cb(null);};
+    rq.onsuccess=function(e){var db=e.target.result,i=0;
+      if(!db.objectStoreNames.contains('imgs'))return cb(null);
+      (function nx(){if(i>=keys.length)return cb(null);var k=keys[i++];
+        try{var g=db.transaction('imgs','readonly').objectStore('imgs').get(k);g.onsuccess=function(){var v=g.result;if(typeof v==='string'&&v.length>200)cb(v);else nx();};g.onerror=nx;}catch(x){nx();}})();};
+    rq.onerror=function(){cb(null);};}catch(x){cb(null);}
+}
 function djImage(it,cb){
-  var v=it.image||'';
   if(_djImgCache[it.id]!==undefined)return cb(_djImgCache[it.id]);
   var done=function(d){_djImgCache[it.id]=d||null;cb(d||null);};
-  if(v.indexOf('data:')===0)return done(v);
-  if(/^https?:/.test(v))return done(v);
-  var key='item_'+it.id;
-  var fromCloud=function(){if(!FB.connected||!FB.db)return done(null);FB.db.ref('rooms/'+FB.room+'/images/'+key).once('value').then(function(s){done(s.val());}).catch(function(){done(null);});};
-  try{var rq=indexedDB.open('dj_images');rq.onupgradeneeded=function(e){e.target.transaction.abort();};
-    rq.onsuccess=function(e){var db=e.target.result;try{var g=db.transaction('imgs','readonly').objectStore('imgs').get(key);g.onsuccess=function(){if(g.result)done(g.result);else fromCloud();};g.onerror=fromCloud;}catch(x){fromCloud();}};
-    rq.onerror=fromCloud;}catch(x){fromCloud();}
+  var cands=[it.image].concat(it.images||[]).filter(function(v){return typeof v==='string'&&v;});
+  var direct=cands.find(function(v){return v.indexOf('data:image')===0&&v.length>200;})||cands.find(function(v){return/^https?:\/\//.test(v);});
+  if(direct)return done(direct);
+  var keys=['item_'+it.id];(it.images||[]).forEach(function(v,i){keys.push('item_'+it.id+'_'+i);});
+  _djIdbGet(keys,function(v){
+    if(v)return done(v);
+    if(!FB.connected||!FB.db)return done(null);
+    var r='rooms/'+FB.room+'/images/',i=0;
+    (function nx(){if(i>=keys.length)return done(null);var k=keys[i++];
+      FB.db.ref(r+k).once('value').then(function(s){var v2=s.val();if(typeof v2==='string'&&v2.length>200)done(v2);else nx();}).catch(nx);})();
+  });
 }
-function djiThumbs(){document.querySelectorAll('[data-dji]').forEach(function(el,ix){if(ix>40)return;var it=DJI.items.find(function(i){return i.id===el.getAttribute('data-dji');});if(!it)return;
-  djImage(it,function(d){if(d&&el.isConnected)el.innerHTML='<img src="'+esc(d)+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px" onerror="this.remove()">';});});}
+// load thumbnails as rows scroll into view (a few at a time)
+var _djObs=null,_djQ=[],_djBusy=0;
+function _djPump(){while(_djBusy<4&&_djQ.length){var el=_djQ.shift();if(!el.isConnected)continue;var it=DJI&&DJI.items.find(function(i){return i.id===el.getAttribute('data-dji');});if(!it)continue;_djBusy++;
+  (function(el,it){djImage(it,function(d){_djBusy--;if(d&&el.isConnected)el.innerHTML='<img src="'+esc(d)+'" style="width:100%;height:100%;object-fit:contain;border-radius:8px" onerror="this.remove()">';_djPump();});})(el,it);}}
+function djiThumbs(){
+  var els=document.querySelectorAll('[data-dji]:not([data-q])');
+  if(!('IntersectionObserver' in window)){els.forEach(function(el){el.setAttribute('data-q','1');_djQ.push(el);});return _djPump();}
+  if(!_djObs)_djObs=new IntersectionObserver(function(en){en.forEach(function(e){if(e.isIntersecting){_djObs.unobserve(e.target);_djQ.push(e.target);}});_djPump();},{rootMargin:'300px'});
+  els.forEach(function(el){el.setAttribute('data-q','1');_djObs.observe(el);});
+}
 function djiStep2(){
   var ids=Object.keys(DJI.sel);if(!ids.length)return toast('Pick some items first');
   var h='<div class="mo-h"><h3>Import '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="rDJI()">‹</button></div><div class="mo-b">';
@@ -1996,9 +2030,9 @@ function djiRun(){
   var ids=Object.keys(DJI.sel),imp=_djImported(),todo=ids.filter(function(id){return!imp[id];}).map(function(id){return DJI.items.find(function(i){return i.id===id;});}).filter(Boolean);
   closeModal(1);toast('Importing '+todo.length+'…',3000);
   var colFolder={};
-  var n=0;
+  var n=0,noImg=0;
   var next=function(){
-    if(!todo.length){DJI=null;render();return toast('✅ Imported '+n+' item'+(n===1?'':'s')+' from Decade Journal',3500);}
+    if(!todo.length){DJI=null;render();return toast('✅ Imported '+n+' item'+(n===1?'':'s')+(noImg?' · '+noImg+' had no photo the journal could share':''),4500);}
     var d=todo.shift();
     var folders=DJI.folders.slice();
     if(DJI.colFolders&&d.collection){var c=_djCol(d.collection);if(c){var fid=colFolder[c.id]||(vals(S.folders).find(function(f){return f.djCol===c.id;})||{}).id;
@@ -2008,12 +2042,166 @@ function djiRun(){
       var fin=function(k){if(k)it.img=k;put('items',it);
         if(DJI.uses)(d.uses||[]).forEach(function(dt){if(/^\d{4}-\d{2}-\d{2}/.test(dt))put('sightings',{id:'s_'+gid(),item:it.id,date:dt.slice(0,10),by:[L.me],place:'',note:'from Decade Journal',created:now()});});
         n++;setTimeout(next,30);};
-      if(!src)return fin('');
+      if(!src){noImg++;return fin('');}
       var p=src.indexOf('data:')===0?Promise.resolve(src):urlToData(src);
-      p.then(function(x){return resizeData(x,800,'webp',0.88);}).then(function(x){fin(imgSave(x));}).catch(function(){fin('');});
+      p.then(function(x){return resizeData(x,800,'webp',0.88);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
     });
   };
   next();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  🔎 DESCRIBE IT — identify something you couldn't photograph
+//  Tap chips + type/dictate a description (optionally a far-away/blurry shot) →
+//  AI turns it into exact model names → check with Google Images → log it.
+//  Or save it as a ❓ mystery now and identify later.
+// ════════════════════════════════════════════════════════════════
+var ID=null;
+var ID_BRANDS={shoe:['Nike','Jordan','Adidas','Yeezy','New Balance','Asics','On','Hoka','Puma','Converse','Vans','Reebok','Salomon','Crocs','UGG','Timberland','Dr. Martens'],
+  top:['Nike','Adidas','Supreme','Stüssy','Carhartt','The North Face','Patagonia','Arc\'teryx','Champion','Essentials','Palace','Bape','Kith','Uniqlo','Lululemon','Ralph Lauren'],
+  any:[]};
+var ID_FEATS={shoe:['low top','mid','high top','strap','visible Air bubble','chunky sole','thin flat sole','Swoosh','Jumpman','3 stripes','N logo','suede','mesh','leather','patent/shiny','fuzzy/furry','reflective','speckled','zig-zag sole','slip-on','boot','hiking','running','basketball','skate'],
+  top:['hoodie','zip-up','crewneck','tee','jacket','puffer','fleece','windbreaker','varsity','denim','graphic print','big chest logo','small chest logo','back print','all-over pattern','stripes','camo','plaid','cropped','oversized'],
+  bottom:['jeans','cargo','joggers','shorts','sweatpants','wide leg','skinny','ripped','carpenter','side stripe'],
+  any:['logo','text/words','cartoon/character','metallic','two-tone','neon']};
+var ID_COLORS=[['black','#111'],['white','#f5f5f5'],['grey','#9ca3af'],['red','#dc2626'],['orange','#f97316'],['yellow','#facc15'],['green','#16a34a'],['teal','#14b8a6'],['blue','#2563eb'],['navy','#1e3a8a'],['purple','#7c3aed'],['pink','#f472b6'],['brown','#7c4a1e'],['tan/cream','#e7d8b5'],['gold','#d4a017'],['silver','#c0c0c0']];
+function _idKind(catId){var c=cat(catId),n=((c&&c.name)||'').toLowerCase();if(/sneak|shoe|kick|boot/.test(n))return'shoe';if(/pant|jean|short|bottom/.test(n))return'bottom';if(/jacket|shirt|tee|top|hood|cloth|apparel|outer/.test(n))return'top';return'any';}
+function aiKeyClaude(){return L.claudeKey||djStore().anthropicKey||'';}
+function idProvider(){var p=L.idProvider||'auto';if(p==='claude'&&aiKeyClaude())return'claude';if(p==='gemini'&&L.geminiKey)return'gemini';return aiKeyClaude()?'claude':L.geminiKey?'gemini':'';}
+// opts: {itemId} when identifying an existing ❓ mystery item
+function openIdentify(opts){
+  opts=opts||{};
+  var it=opts.itemId&&S.items[opts.itemId];
+  ID={itemId:opts.itemId||'',cat:it?it.cat:(L.catFilter!=='all'?L.catFilter:((catList().find(function(c){return _idKind(c.id)==='shoe';})||{}).id||'')),
+    brands:[],feats:[],colors:[],text:it?(it.desc||it.notes||''):'',photo:null,results:null,question:null,excluded:[],answers:[],busy:false,
+    place:L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:'',date:tod()};
+  rID();
+}
+function _idCap(){var e=$('id-text');if(e)ID.text=e.value;}
+function _idToggle(arr,v){var i=arr.indexOf(v);if(i>=0)arr.splice(i,1);else arr.push(v);}
+function idDescribe(){
+  var c=cat(ID.cat),bits=[];
+  if(c)bits.push('Type: '+c.name);
+  if(ID.brands.length)bits.push('Brand (my guess): '+ID.brands.join(' or '));
+  if(ID.colors.length)bits.push('Colors: '+ID.colors.join(', '));
+  if(ID.feats.length)bits.push('Features: '+ID.feats.join(', '));
+  if(ID.text.trim())bits.push('Description: '+ID.text.trim());
+  ID.answers.forEach(function(a){bits.push(a);});
+  return bits.join('\n');
+}
+function rID(){
+  var k=_idKind(ID.cat),prov=idProvider();
+  var h='<div class="mo-h"><h3>🔎 '+(ID.itemId?'Identify mystery':'Describe what you saw')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  if(ID.results){h+=idResultsHTML();}
+  else{
+    h+='<div class="hint">No photo? Tap what you remember — AI turns it into exact model names you can check.</div>';
+    h+='<div class="m-lbl">What kind of thing?</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){return'<button class="chip'+(ID.cat===c.id?' on':'')+'" onclick="_idCap();ID.cat=\''+c.id+'\';rID()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+    var brands=ID_BRANDS[k==='bottom'?'top':k]||[];
+    if(brands.length)h+='<div class="m-lbl">Brand? <span class="r hint">skip if unsure</span></div><div class="chips" style="flex-wrap:wrap">'+brands.map(function(b){return'<button class="chip'+(ID.brands.indexOf(b)>=0?' on':'')+'" onclick="_idCap();_idToggle(ID.brands,\''+jsq(b)+'\');rID()">'+esc(b)+'</button>';}).join('')+'</div>';
+    h+='<div class="m-lbl">Colors</div><div class="chips" style="flex-wrap:wrap">'+ID_COLORS.map(function(c){var on=ID.colors.indexOf(c[0])>=0;return'<button class="chip'+(on?' on':'')+'" onclick="_idCap();_idToggle(ID.colors,\''+c[0]+'\');rID()"><span style="width:12px;height:12px;border-radius:50%;background:'+c[1]+';border:1px solid #8884;display:inline-block"></span>'+c[0]+'</button>';}).join('')+'</div>';
+    var feats=(ID_FEATS[k]||[]).concat(ID_FEATS.any);
+    h+='<div class="m-lbl">Details you noticed</div><div class="chips" style="flex-wrap:wrap">'+feats.map(function(f){return'<button class="chip'+(ID.feats.indexOf(f)>=0?' on':'')+'" onclick="_idCap();_idToggle(ID.feats,\''+jsq(f)+'\');rID()">'+esc(f)+'</button>';}).join('')+'</div>';
+    h+='<div class="m-lbl">Anything else <span class="r hint">🎤 use your keyboard mic</span></div><textarea class="m-in" id="id-text" placeholder="e.g. Jordan with a strap, grey furry patch on the tongue, red and black, kind of chunky">'+esc(ID.text)+'</textarea>';
+    h+='<div class="m-lbl">Far-away / blurry shot <span class="r hint">optional — helps a lot</span></div><div class="row">'+(ID.photo?'<img src="'+ID.photo+'" class="thumb" style="width:56px;height:56px;object-fit:cover">':'')+
+      '<button class="btn btn-s btn-sm" onclick="_idCap();pickPhoto(\'cam\',function(d){ID.photo=d;rID();})">📷</button><button class="btn btn-s btn-sm" onclick="_idCap();pickPhoto(\'gal\',function(d){ID.photo=d;rID();})">🖼</button>'+(ID.photo?'<button class="btn btn-g btn-sm" onclick="ID.photo=null;rID()">✕</button>':'')+'</div>';
+    if(!ID.itemId){h+='<div class="m-lbl">Where</div>'+placeChip(ID.place,'_idCap();openPlacePicker(function(id){ID.place=id;rID();})','_idCap();ID.place=\'\';rID()');}
+    if(!prov)h+='<div class="sec" style="border-color:var(--warn)"><b>Needs an AI key.</b> <span class="hint">Add a Claude key (or reuse Decade Journal\'s) or a Gemini key in ⚙️ → 🔎 Identify. Gemini\'s text models have a free tier. You can still save it as a mystery now.</span></div>';
+  }
+  h+='</div><div class="mo-f">';
+  if(ID.results)h+='<button class="btn btn-s" onclick="ID.results=null;ID.question=null;rID()">‹ Edit description</button><button class="btn btn-s" onclick="idSaveMystery()">❓ Save as mystery</button>';
+  else h+=(ID.itemId?'':'<button class="btn btn-s" onclick="_idCap();idSaveMystery()">❓ Save for later</button>')+'<button class="btn btn-p" '+(prov?'':'disabled')+' onclick="_idCap();idRun()">🤖 Identify</button>';
+  h+='</div>';
+  openModal(h,1);
+}
+function idResultsHTML(){
+  var h='';
+  if(ID.busy)return'<div class="empty"><div class="spin" style="margin:0 auto 10px"></div>Thinking about what you saw…</div>';
+  var r=ID.results||[];
+  if(!r.length)h+='<div class="empty" style="padding:16px">No confident matches. Try adding a detail or a color.</div>';
+  h+=r.map(function(c,i){
+    var q=encodeURIComponent(c.search||c.name);
+    var conf=Math.max(0,Math.min(100,+c.confidence||0));
+    return'<div class="sec" style="margin-top:8px"><div class="row" style="align-items:flex-start"><div class="grow" style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">'+esc(c.name)+'</div>'+
+      '<div class="hint">'+[c.colorway,c.year].filter(Boolean).map(esc).join(' · ')+'</div></div>'+
+      '<span class="chip" style="flex-shrink:0;'+(conf>=60?'background:#16a34a;color:#fff;border-color:#16a34a':'')+'">'+conf+'%</span></div>'+
+      (c.why?'<div style="font-size:12px;margin-top:4px">'+esc(c.why)+'</div>':'')+
+      (c.tells?'<div class="hint" style="margin-top:3px">👀 Check: '+esc(c.tells)+'</div>':'')+
+      '<div class="row" style="margin-top:8px"><a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+q+'" target="_blank" rel="noopener">🖼 See photos</a>'+
+      '<button class="btn btn-p btn-sm" style="flex:1" onclick="idPick('+i+')">✓ That\'s it</button></div></div>';}).join('');
+  if(ID.question){
+    h+='<div class="sec" style="margin-top:12px;border-color:var(--accent1)"><b>🤔 '+esc(ID.question.q)+'</b><div class="chips" style="flex-wrap:wrap;margin-top:6px">'+
+      (ID.question.options||[]).map(function(o,i){return'<button class="chip" onclick="idAnswer('+i+')">'+esc(o)+'</button>';}).join('')+'</div></div>';
+  }
+  h+='<div class="row" style="margin-top:10px"><input class="m-in" id="id-more" placeholder="Not these? Say what\'s different…" onkeydown="if(event.key===\'Enter\')idRefine()"><button class="btn btn-p" onclick="idRefine()">↻</button></div>';
+  h+='<div class="hint" style="margin-top:4px">Tip: in Google photos, long-press the right picture → <b>Share → Spotted</b> to use it as the item photo.</div>';
+  return h;
+}
+function idAnswer(i){var q=ID.question;ID.answers.push(q.q+' → '+q.options[i]);idRun();}
+function idRefine(){var v=(($('id-more')||{}).value||'').trim();(ID.results||[]).forEach(function(c){if(ID.excluded.indexOf(c.name)<0)ID.excluded.push(c.name);});if(v)ID.answers.push('Correction: '+v);idRun();}
+function idRun(){
+  var desc=idDescribe();
+  if(!desc.trim()||(!ID.text.trim()&&!ID.feats.length&&!ID.brands.length&&!ID.photo&&!ID.answers.length))return toast('Tap a few details or type a description first');
+  ID.busy=true;ID.results=ID.results||[];rID();
+  var sys='You identify specific products (sneakers, streetwear, clothing, collectibles, cars, etc.) from a hurried, imperfect description by someone who saw it in public and could not take a clear photo. '+
+    'Give the most likely exact model + colorway names, as they would be listed on StockX/GOAT/the brand site, so the user can search them. Consider that the user may misremember brand or details. '+
+    'Return ONLY JSON: {"candidates":[{"name":"exact searchable product name incl. colorway","colorway":"","year":"","confidence":0-100,"why":"one sentence linking it to their description","tells":"1-2 visible features to confirm at a glance","search":"best Google Images query"}],'+
+    '"question":{"q":"ONE short question whose answer best separates the top candidates","options":["2-5 short answer choices"]}}. Up to 6 candidates, best first. If very unsure, include different model families. No markdown.';
+  var user='What I saw:\n'+desc+(ID.excluded.length?'\n\nIt is NOT any of these: '+ID.excluded.join('; '):'');
+  var done=function(e,txt){
+    ID.busy=false;
+    if(e){ID.results=ID.results&&ID.results.length?ID.results:null;rID();return alert('⚠️ '+(e.message||e));}
+    var j=null;try{var m=String(txt).match(/\{[\s\S]*\}/);j=JSON.parse(m?m[0]:txt);}catch(x){}
+    if(!j){ID.results=[];ID.question=null;rID();return toast('AI reply could not be read — try again');}
+    ID.results=(j.candidates||[]).filter(function(c){return c&&c.name;});ID.question=j.question&&j.question.q?j.question:null;rID();
+  };
+  var prov=idProvider();
+  var send=function(img){if(prov==='claude')_claudeID(sys,user,img,done);else _geminiID(sys,user,img,done);};
+  if(ID.photo)resizeData(ID.photo,1024,'jpeg',0.85).then(send);else send(null);
+}
+function _claudeID(sys,user,img,cb){
+  var content=[];if(img)content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}});content.push({type:'text',text:user});
+  fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':aiKeyClaude(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:(L.claudeModel||'claude-sonnet-5-5').trim(),max_tokens:1800,system:sys,messages:[{role:'user',content:content}]})})
+  .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Claude HTTP '+r.status));return j;});})
+  .then(function(j){cb(null,(j.content||[]).map(function(b){return b.text||'';}).join(''));}).catch(function(e){cb(e);});
+}
+function _geminiID(sys,user,img,cb){
+  var parts=[];if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img.split(',')[1]}});parts.push({text:user});
+  var model=(L.geminiTextModel||'gemini-flash-latest').trim();
+  var body={systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:parts}],tools:[{google_search:{}}]};
+  var go=function(b,retried){
+    fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},body:JSON.stringify(b)})
+    .then(function(r){return r.json().then(function(j){if(!r.ok){var m=(j.error&&j.error.message)||('Gemini HTTP '+r.status);
+      if(!retried&&/search|tool|grounding/i.test(m)){delete b.tools;return go(b,true);}throw new Error(m);}
+      var p=((j.candidates||[])[0]||{}).content;cb(null,(p&&p.parts||[]).map(function(x){return x.text||'';}).join(''));});}).catch(function(e){cb(e);});
+  };
+  go(body,false);
+}
+function idPick(i){
+  var c=ID.results[i];
+  var note=c.name+(c.colorway?' — '+c.colorway:'')+'\nSeen as: '+idDescribe().replace(/\n/g,'; ');
+  // already have it? just log a sighting
+  var ex=vals(S.items).find(function(x){return x.name.toLowerCase()===c.name.toLowerCase();});
+  if(ID.itemId&&S.items[ID.itemId]){
+    var it=clone(S.items[ID.itemId]);
+    if(ex&&ex.id!==it.id&&confirm('You already have "'+ex.name+'". Merge this mystery\'s sightings into it?')){
+      itemSightings(it.id).forEach(function(s){var s2=clone(s);s2.item=ex.id;put('sightings',s2);});deleteItemById(it.id);closeModal(1);render();return openItemModal(ex.id);}
+    it.name=c.name;it.mystery=false;it.notes=(it.notes?it.notes+'\n':'')+note;put('items',it);closeModal(1);render();toast('❓ → '+c.name);return openItemModal(it.id);
+  }
+  closeModal(1);
+  if(ex){var s=addSighting({item:ex.id,date:ID.date,place:ID.place});toast('✅ Logged another sighting of '+ex.name);render();return openItemModal(ex.id);}
+  openItemModal(null,{name:c.name,cat:ID.cat});
+  IM.f.notes=note;IM.first.place=ID.place;IM.first.date=ID.date;
+  if(ID.photo)studioAdd(ID.photo,'Photo',true);else rItem();
+  toast('Add a photo from Google: long-press → Copy image → 📋 Paste, or Share → Spotted',5000);
+}
+function idSaveMystery(){
+  var desc=idDescribe();if(!desc.trim())return toast('Describe it a little first');
+  if(ID.itemId){var it0=clone(S.items[ID.itemId]);it0.desc=desc;put('items',it0);closeModal(1);return toast('Saved');}
+  var short=(ID.text.trim()||[ID.brands[0],ID.colors.slice(0,2).join('/'),ID.feats.slice(0,2).join(', ')].filter(Boolean).join(' ')).slice(0,48);
+  var it={id:'it_'+gid(),name:'❓ '+(short||'Mystery item'),cat:ID.cat,mystery:true,desc:desc,notes:desc,folders:[],created:now(),img:''};
+  var finish=function(){put('items',it);addSighting({item:it.id,date:ID.date,place:ID.place,note:'unidentified'});if(ID.place){L.lastPlace=ID.place;L.lastPlaceDay=tod();svL();}closeModal(1);render();toast('❓ Saved — identify it later from the item or the ❓ filter',3500);};
+  if(ID.photo)resizeData(ID.photo,900,'webp',0.85).then(function(d){it.img=imgSave(d);finish();});else finish();
 }
 </script>
 </body>
