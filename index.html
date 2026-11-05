@@ -278,7 +278,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.9';
+var APP_VERSION='v1.10';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -1057,7 +1057,9 @@ function render(){
     '<span class="sync-dot" id="sync-dot" onclick="syncTap()"></span>'+
     '<button class="icon-btn" title="Light / dark" onclick="toggleTheme()">◐</button>'+
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
-  h+='<div class="content">'+(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():L.tab==='lib'?viewLibrary():viewItems())+'</div>';
+  var body;try{body=(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():L.tab==='lib'?viewLibrary():viewItems());}
+  catch(e){console.error(e);body='<div class="empty"><div class="big">⚠️</div>This tab hit an error:<br><code style="font-size:11px">'+esc(e.message)+'</code><br><br><button class="btn btn-p" onclick="L.tab=\'items\';L.libNode=\'\';L.activeCard=\'\';svL();location.reload()">Go to Items</button></div>';}
+  h+='<div class="content">'+body+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
   if(!SEL)h+='<button class="fab fab2" onclick="openFind()" title="Find something you couldn\'t photograph">🔎</button><button class="fab" onclick="quickSpot()">📷 Spot</button>';
   $('app').innerHTML=h;
@@ -1132,7 +1134,7 @@ function selTap(id){if(SEL[id])delete SEL[id];else SEL[id]=1;render();}
 function selIds(){return Object.keys(SEL||{}).filter(function(id){return S.items[id];});}
 function selBarHTML(){var n=selIds().length;
   return'<div class="selbar"><b>'+n+' selected</b><button class="btn btn-g btn-sm" onclick="filteredItems().forEach(function(i){SEL[i.id]=1;});render()">All</button><div class="spacer"></div>'+
-  '<button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selFolder()">📁 Folder</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selCat()">🗂 Type</button><button class="btn btn-d btn-sm" '+(n?'':'disabled')+' onclick="selDelete()">🗑</button></div>';}
+  '<button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selFolder()">📁 Folder</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selToLib()">📚</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selCat()">🗂 Type</button><button class="btn btn-d btn-sm" '+(n?'':'disabled')+' onclick="selDelete()">🗑</button></div>';}
 function selFolder(){
   var ids=selIds();
   var h='<div class="mo-h"><h3>📁 Folders for '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
@@ -1566,6 +1568,8 @@ function refPick(cb){_rpCb=cb;var rs=vals(S.refs).sort(function(a,b){return a.na
   var h='<div class="mo-h"><h3>Link to library</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">'+(rs.length?'<div class="pick-grid">'+rs.map(function(r){var k=refThumb(r);return'<div class="pick" onclick="closeModal(2);_rpCb(\''+r.id+'\')">'+(k?imgHTML(k):'<div class="thumb">📚</div>')+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div>':'<div class="empty">Library is empty.</div>')+'</div>';
   openModal(h,2);}
 
+function selToLib(){var ids=selIds();openTreePicker({title:'Add '+ids.length+' to library in…',onPick:function(d){itemsToLib(ids,d);SEL=null;render();}});}
+
 // ════════════════════════════════════════════════════════════════
 //  BINGO
 //  card: {id,name,size,free,mode:'team'|'race',cells:[{t:'item'|'cat'|'text'|'free'|'empty',ref,text,lock}],pool,created,u}
@@ -1987,7 +1991,7 @@ function warmModel(){
 function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}
 
 // ════════════ BOOT ════════════
-(function boot(){
+function boot(){
   applyTheme();
   ld();
   var start=function(){restoreLocalSettings(function(){applyTheme();start2();});};
@@ -2008,7 +2012,7 @@ function applyTheme(){var t=L.theme||(window.matchMedia&&matchMedia('(prefers-co
   document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){if(_svTimer){clearTimeout(_svTimer);_svNow();}if(_fbWT){clearTimeout(_fbWT);fbFlush();}}});
   // re-adopt keys after sync delivers meta
   setInterval(adoptSyncedKeys,10000);
-})();
+}
 
 function importDJPlacesLocal(){
   var n=0,t=now();djPlaces().forEach(function(p){if(vals(S.places).some(function(x){return x.name.toLowerCase()===p.name.toLowerCase()&&(x.address||'')===(p.address||'');}))return;
@@ -2034,8 +2038,9 @@ function storageEstimate(){
 //  Pick specific items (search + multiselect), choose type/folders, bring photos along.
 // ════════════════════════════════════════════════════════════════
 var DJI=null;
-function openDJImport(){
-  DJI={items:[],cols:[],q:'',col:'all',sel:{},loading:true,src:'',cat:'',folders:[],colFolders:true,uses:false};
+// target: 'items' (default) or 'lib' (📚 library entries, filed into a folder)
+function openDJImport(target){
+  DJI={target:target==='lib'?'lib':'items',dest:target==='lib'?(LF.node||''):'',items:[],cols:[],q:'',col:'all',sel:{},loading:true,src:'',cat:'',folders:[],colFolders:true,uses:false};
   rDJI();
   var fromLocal=function(why){var d=djStore();DJI.items=(d.items||[]).filter(function(i){return i&&i.name;});DJI.cols=d.collections||[];DJI.src='this phone\'s Decade Journal'+(why?' ('+why+')':'');DJI.loading=false;rDJI();};
   if(FB.connected&&FB.db){
@@ -2048,12 +2053,12 @@ function openDJImport(){
   }else fromLocal('not connected to sync');
 }
 function _djCol(id){return DJI.cols.find(function(c){return c.id===id;});}
-function _djImported(){var m={};vals(S.items).forEach(function(i){if(i.djId)m[i.djId]=i.id;});return m;}
+function _djImported(){var m={};vals(DJI&&DJI.target==='lib'?S.refs:S.items).forEach(function(i){if(i.djId)m[i.djId]=i.id;});return m;}
 function djiList(){var q=DJI.q.toLowerCase().trim();return DJI.items.filter(function(i){
   if(DJI.col!=='all'&&i.collection!==DJI.col)return false;
   if(q&&(i.name+' '+(i.notes||'')+' '+(i.tags||[]).join(' ')).toLowerCase().indexOf(q)<0)return false;return true;}).sort(function(a,b){return a.name.localeCompare(b.name);});}
 function rDJI(){
-  var h='<div class="mo-h"><h3>📓 From Decade Journal</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  var h='<div class="mo-h"><h3>📓 Journal → '+(DJI.target==='lib'?'📚 Library':'Items')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   if(DJI.loading){h+='<div class="empty"><div class="spin" style="margin:0 auto 8px"></div>Reading your journal items…</div></div>';return openModal(h,1);}
   h+='<div class="hint">'+DJI.items.length+' items from '+esc(DJI.src)+'. Nothing is changed in the journal.</div>';
   h+='<input class="m-in" id="dji-q" placeholder="Search journal items…" value="'+esc(DJI.q)+'" style="margin-top:8px" oninput="DJI.q=this.value;debounce(\'dji\',djiPaint,200)">';
@@ -2070,7 +2075,7 @@ function djiListHTML(){
   return'<div class="row" style="margin:8px 0 2px"><span class="hint" style="flex:1">'+list.length+' shown</span><button class="btn btn-g btn-sm" onclick="djiAll('+(allOn?0:1)+')">'+(allOn?'Select none':'Select all shown')+'</button></div>'+
   list.slice(0,300).map(function(i){var c=_djCol(i.collection),on=!!DJI.sel[i.id],done=imp[i.id];
     return'<div class="li" onclick="'+(done?'':'djiTap(\''+i.id+'\')')+'" style="'+(done?'opacity:.5':'')+'"><div class="selbox" style="position:static;flex-shrink:0;'+(on?'background:var(--accent1);color:var(--paper)':'')+'">'+(done?'✓':on?'✓':'')+'</div>'+
-    '<div class="thumb" data-dji="'+i.id+'">'+esc(c&&c.icon||'📦')+'</div><div class="grow"><div class="t">'+esc(i.name)+'</div><div class="s">'+(c?esc(c.name):'')+(done?' · already in Spotted':'')+((i.uses||[]).length?' · '+i.uses.length+' uses':'')+'</div></div></div>';}).join('')+
+    '<div class="thumb" data-dji="'+i.id+'">'+esc(c&&c.icon||'📦')+'</div><div class="grow"><div class="t">'+esc(i.name)+'</div><div class="s">'+(c?esc(c.name):'')+(done?(DJI.target==='lib'?' · already in library':' · already in Spotted'):'')+((i.uses||[]).length?' · '+i.uses.length+' uses':'')+'</div></div></div>';}).join('')+
   (list.length>300?'<div class="hint">Showing first 300 — search to narrow.</div>':'');
 }
 function djiTap(id){if(DJI.sel[id])delete DJI.sel[id];else DJI.sel[id]=1;djiPaint();}
@@ -2115,6 +2120,7 @@ function djiThumbs(){
 }
 function djiStep2(){
   var ids=Object.keys(DJI.sel);if(!ids.length)return toast('Pick some items first');
+  if(DJI.target==='lib')return djiStep2Lib(ids);
   var h='<div class="mo-h"><h3>Import '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="rDJI()">‹</button></div><div class="mo-b">';
   h+='<div class="m-lbl">Item type in Spotted</div><div class="chips" style="flex-wrap:wrap"><button class="chip'+(!DJI.cat?' on':'')+'" onclick="DJI.cat=\'\';djiStep2()">Guess from journal collection</button>'+catList().map(function(c){return'<button class="chip'+(DJI.cat===c.id?' on':'')+'" onclick="DJI.cat=\''+c.id+'\';djiStep2()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
   h+='<div class="m-lbl">Put in folders</div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(f){var on=DJI.folders.indexOf(f.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="var a=DJI.folders,i=a.indexOf(\''+f.id+'\');if(i>=0)a.splice(i,1);else a.push(\''+f.id+'\');djiStep2()">'+esc(f.icon||'📁')+' '+esc(f.name)+'</button>';}).join('')+'<button class="chip" onclick="newFolder(function(id){DJI.folders.push(id);djiStep2();})">＋ Folder</button></div>';
@@ -2122,6 +2128,16 @@ function djiStep2(){
   h+='<label class="toggle"><input type="checkbox" '+(DJI.uses?'checked':'')+' onchange="DJI.uses=this.checked">Bring journal “use” dates in as sightings</label>';
   h+='<div class="hint">Photos come along (compressed). Re-importing skips items already brought over.</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="rDJI()">Back</button><button class="btn btn-p" onclick="djiRun()">Import</button></div>';
+  openModal(h,1);
+}
+function djiStep2Lib(ids){
+  var dest=DJI.dest&&S.refs[DJI.dest];
+  var h='<div class="mo-h"><h3>Add '+ids.length+' to library</h3><button class="icon-btn" onclick="rDJI()">‹</button></div><div class="mo-b">';
+  h+='<div class="m-lbl">Put them in</div><button class="btn btn-s btn-block" style="justify-content:flex-start" onclick="openTreePicker({title:\'Put them in…\',start:DJI.dest,onPick:function(d){DJI.dest=d;djiStep2();}})">📂 '+(dest?esc((refPath(dest)?refPath(dest)+' › ':'')+dest.name):'Library (top level)')+'</button>';
+  h+='<label class="toggle"><input type="checkbox" '+(DJI.colFolders?'checked':'')+' onchange="DJI.colFolders=this.checked">Make a sub-folder for each journal collection (e.g. “👟 Jerico\'s Shoe Collection”)</label>';
+  h+='<div class="m-lbl">Type</div><div class="chips" style="flex-wrap:wrap"><button class="chip'+(!DJI.cat?' on':'')+'" onclick="DJI.cat=\'\';djiStep2()">Guess from collection</button>'+catList().map(function(c){return'<button class="chip'+(DJI.cat===c.id?' on':'')+'" onclick="DJI.cat=\''+c.id+'\';djiStep2()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="hint" style="margin-top:8px">Each one becomes a library entry with its journal photo and notes. Nothing is logged as a sighting, and the journal isn\'t changed. Re-importing skips ones already in the library.</div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="rDJI()">Back</button><button class="btn btn-p" onclick="djiRun()">Add to library</button></div>';
   openModal(h,1);
 }
 function _guessCat(djItem){
@@ -2138,6 +2154,7 @@ function djiRun(){
   closeModal(1);toast('Importing '+todo.length+'…',3000);
   var colFolder={};
   var n=0,noImg=0;
+  if(DJI.target==='lib')return djiRunLib(todo);
   var next=function(){
     if(!todo.length){DJI=null;render();return toast('✅ Imported '+n+' item'+(n===1?'':'s')+(noImg?' · '+noImg+' had no photo the journal could share':''),4500);}
     var d=todo.shift();
@@ -2155,6 +2172,25 @@ function djiRun(){
     });
   };
   next();
+}
+
+function djiRunLib(todo){
+  var dest=DJI.dest||'',colGroup={},n=0,noImg=0;
+  var next=function(){
+    if(!todo.length){var d0=DJI.dest;DJI=null;L.tab='lib';svL();libGo(d0);return toast('📚 Added '+n+' to your library'+(noImg?' · '+noImg+' without a photo':''),4500);}
+    var d=todo.shift(),catId=DJI.cat||_guessCat(d),parent=dest;
+    if(DJI.colFolders&&d.collection){var c=_djCol(d.collection);if(c){
+      var gid0=colGroup[c.id]||(vals(S.refs).find(function(r){return isGroup(r)&&r.djCol===c.id&&(r.parent||'')===dest;})||{}).id;
+      if(!gid0){gid0='rf_'+gid();put('refs',{id:gid0,group:true,name:c.name,emoji:c.icon||'📓',parent:dest,cat:catId,djCol:c.id,traits:{},imgs:[],created:now()});}
+      colGroup[c.id]=gid0;parent=gid0;}}
+    var r={id:'rf_'+gid(),name:d.name,parent:parent,cat:catId,traits:{},imgs:[],notes:d.notes||'',djId:d.id,created:now()};
+    djImage(d,function(src){
+      var fin=function(k){if(k)r.imgs=[k];put('refs',r);n++;setTimeout(next,30);};
+      if(!src){noImg++;return fin('');}
+      (src.indexOf('data:')===0?Promise.resolve(src):urlToData(src)).then(function(x){return resizeData(x,900,'webp',0.86);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
+    });
+  };
+  toast('Adding '+todo.length+' to library…',3000);next();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2662,18 +2698,34 @@ function libAddMenu(){
   var h='<div class="mo-h"><h3>Add to '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
     '<button class="btn btn-s btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{group:true,parent:LF.node})">📁 New folder <span class="hint">brand, silhouette, line…</span></button>'+
     '<button class="btn btn-p btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{parent:LF.node})">🏷 New entry <span style="opacity:.7;font-weight:500">a colorway / specific item</span></button>'+
-    '<button class="btn btn-s btn-block" onclick="closeModal(1);libFromItems()">↧ From my spotted items</button></div>';
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);libFromItems()">↧ From my spotted items</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);openDJImport(\'lib\')">📓 From Decade Journal</button></div>';
   openModal(h,1);
 }
 function libSel(id){if(LF.sel[id])delete LF.sel[id];else LF.sel[id]=1;render();}
 function libMoveSel(){var ids=Object.keys(LF.sel);openTreePicker({title:'Move '+ids.length+' to…',exclude:ids,onPick:function(dest){ids.forEach(function(id){var r=clone(S.refs[id]);r.parent=dest;put('refs',r);});LF.sel=null;toast('Moved');render();}});}
 function libDeleteSel(){var ids=Object.keys(LF.sel).filter(function(id){return S.refs[id];});if(!confirm('Delete '+ids.length+' selected? Folders\' contents move up a level.'))return;ids.forEach(function(id){refDeleteById(id);});LF.sel=null;render();}
-function libFromItems(){
-  openItemPicker(function(id){var it=S.items[id];if(!it)return;
-    var ex=vals(S.refs).find(function(r){return!isGroup(r)&&r.name.toLowerCase()===it.name.toLowerCase();});if(ex){toast('Already in your library');return openRefView(ex.id);}
-    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),parent:LF.node||'',cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
-    var x=clone(it);x.ref=r.id;put('items',x);render();openRefEditor(r.id);
-  },{title:'Add which item here?'});
+// pick several spotted items and turn them into library entries in this folder
+var LFI=null;
+function libFromItems(){LFI={sel:{},q:''};rLFI();}
+function rLFI(){
+  var q=LFI.q.toLowerCase(),linked={};vals(S.refs).forEach(function(r){if(!isGroup(r))linked[r.name.toLowerCase()]=1;});
+  var list=vals(S.items).filter(function(i){return!q||i.name.toLowerCase().indexOf(q)>=0;}).sort(function(a,b){return a.name.localeCompare(b.name);});
+  var here=LF.node&&S.refs[LF.node];
+  var h='<div class="mo-h"><h3>Items → 📚 '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<input class="m-in" id="lfi-q" placeholder="Search your items…" value="'+esc(LFI.q)+'" oninput="LFI.q=this.value;debounce(\'lfi\',function(){rLFI();var e=$(\'lfi-q\');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},300)">';
+  h+='<div class="pick-grid" style="margin-top:8px">'+list.map(function(i){var on=LFI.sel[i.id],done=i.ref&&S.refs[i.ref]||linked[i.name.toLowerCase()];
+    return'<div class="pick'+(on?' on':'')+'" style="position:relative;'+(done?'opacity:.4':'')+'" onclick="'+(done?'':'if(LFI.sel[\''+i.id+'\'])delete LFI.sel[\''+i.id+'\'];else LFI.sel[\''+i.id+'\']=1;rLFI()')+'">'+(on?'<div class="selbox" style="background:var(--accent1);color:var(--paper)">✓</div>':'')+
+      (i.img?imgHTML(i.img):'<div class="thumb">'+((cat(i.cat)||{}).icon||'📦')+'</div>')+'<div>'+esc(i.name)+'</div>'+(done?'<div class="hint" style="font-size:9px">in library</div>':'')+'</div>';}).join('')+'</div>';
+  var n=Object.keys(LFI.sel).length;
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" '+(n?'':'disabled')+' onclick="itemsToLib(Object.keys(LFI.sel),LF.node);closeModal(1)">Add '+n+' here</button></div>';
+  openModal(h,1);
+}
+function itemsToLib(ids,dest){
+  var n=0;ids.forEach(function(id){var it=S.items[id];if(!it||(it.ref&&S.refs[it.ref]))return;
+    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),parent:dest||'',cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
+    var x=clone(it);x.ref=r.id;put('items',x);n++;});
+  render();toast('📚 Added '+n+' to the library');
 }
 // folder picker (move / choose location / browse in Find)
 var TP=null;
@@ -2868,6 +2920,20 @@ function rSB(){
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="SB.m=shoeDefault();rSB()">Reset</button><button class="btn btn-p" onclick="var cb=SB.cb,m=SB.m;closeModal(3);cb(m)">Use mockup</button></div>';
   openModal(h,3);
 }
+
+// ════════════ START — runs last, after every module above has set up its variables ════════════
+(function(){
+  try{boot();}catch(e){showFatal(e);}
+})();
+function showFatal(e){
+  console.error(e);
+  var app=$('app');if(!app)return;
+  app.innerHTML='<div style="padding:24px;font-family:Quicksand,sans-serif"><h2>⚠️ Spotted hit a snag while opening</h2><p style="margin:10px 0;color:#555">Your data is safe. Copy this and send it to whoever fixes the app:</p>'+
+    '<pre style="white-space:pre-wrap;background:#f5f5f5;padding:10px;border-radius:8px;font-size:12px">'+esc(APP_VERSION+' · '+(e&&e.stack||e))+'</pre>'+
+    '<button class="btn btn-p" style="margin-top:10px" onclick="try{L.tab=\'items\';L.activeCard=\'\';L.libNode=\'\';svL();}catch(x){}location.reload()">Open the Items tab instead</button></div>';
+}
+// a crash later (while tapping around) shouldn't leave a blank screen either
+window.addEventListener('error',function(ev){if(!$('app')||$('app').innerHTML.trim())return;showFatal(ev.error||ev.message);});
 </script>
 </body>
 </html>
