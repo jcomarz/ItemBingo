@@ -154,6 +154,12 @@ textarea.m-in{min-height:64px;resize:vertical}
 .lib-folder.sel{outline:3px solid var(--accent1)}
 .lib-av{width:100%;aspect-ratio:1/1;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid var(--paperGrid)}
 .lib-av img{width:100%;height:100%;object-fit:contain}
+.lib-av.fill img{object-fit:cover}
+.lib-av.mosaic{display:grid;gap:2px;padding:2px;background:var(--paperGrid)!important}
+.lib-av.mosaic img{background:#fff;object-fit:contain;width:100%;height:100%;min-height:0;border-radius:6px}
+.lib-av.mosaic.n2,.lib-av.mosaic.n3,.lib-av.mosaic.n4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
+.lib-av.mosaic.n2 img{grid-row:span 2}
+.lib-av.mosaic.n3 img:first-child{grid-row:span 2}
 .lf-name{font-weight:700;font-size:14px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lf-meta{font-size:10px;color:var(--inkFaint)}
 .selbox{position:absolute;top:6px;right:6px;z-index:4;width:24px;height:24px;border-radius:50%;border:2px solid var(--accent1);background:var(--paper);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
@@ -280,7 +286,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.11';
+var APP_VERSION='v1.12';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -2674,10 +2680,21 @@ function viewLibrary(){
   h+='<div id="lib-grid">'+libGridHTML()+'</div>';
   return h;
 }
-function libAvatar(r,size){var k=refThumb(r);size=size||0;
-  var st=size?'width:'+size+'px;height:'+size+'px;flex-shrink:0;':'';
-  if(k)return'<div class="lib-av" style="'+st+'background:'+(r.color||'#fff')+'">'+imgHTML(k)+'</div>';
-  return'<div class="lib-av" style="'+st+'background:'+(r.color||'var(--paperDark)')+';font-size:'+(size?Math.round(size*0.5):40)+'px">'+esc(r.emoji||(isGroup(r)?'📁':((cat(effCat(r))||{}).icon||'📦')))+'</div>';}
+function _imgInUse(k,exceptRefId){if(!k)return false;return vals(S.items).some(function(i){return i.img===k||i.orig===k;})||vals(S.refs).some(function(r){return r.id!==exceptRefId&&((r.imgs||[]).indexOf(k)>=0||r.cover===k||r.mockImg===k);});}
+function _entryThumb(r){return(r.imgs&&r.imgs[0])||r.mockImg||'';}
+// folder avatar: custom art → an entry's picture → emoji → auto preview of what's inside
+function libAvatar(r,size){
+  size=size||0;var st=size?'width:'+size+'px;height:'+size+'px;flex-shrink:0;':'';
+  var fit=r.coverFit==='contain'?'contain':'cover',bg=r.color||'#fff';
+  var one=function(inner){return'<div class="lib-av'+(fit==='cover'?' fill':'')+'" style="'+st+'background:'+bg+'">'+inner+'</div>';};
+  if(r.cover==='__new__'&&RE&&RE.f===r&&RE.coverNew)return one('<img src="'+RE.coverNew+'">');
+  if(isGroup(r)&&r.coverFrom&&S.refs[r.coverFrom]&&_entryThumb(S.refs[r.coverFrom]))return one(imgHTML(_entryThumb(S.refs[r.coverFrom])));
+  if(isGroup(r)&&r.cover&&r.cover!=='__new__')return one(imgHTML(r.cover));
+  if(!isGroup(r)){var k=refThumb(r);if(k)return'<div class="lib-av" style="'+st+'background:#fff">'+imgHTML(k)+'</div>';}
+  if(isGroup(r)&&!r.emoji){var th=refEntriesUnder(r.id).map(_entryThumb).filter(Boolean).slice(0,4);
+    if(th.length)return'<div class="lib-av mosaic n'+th.length+'" style="'+st+'background:#fff">'+th.map(function(k){return imgHTML(k);}).join('')+'</div>';}
+  return'<div class="lib-av" style="'+st+'background:'+(r.color||'var(--paperDark)')+';font-size:'+(size?Math.round(size*0.5):40)+'px">'+esc(r.emoji||(isGroup(r)?'📁':((cat(effCat(r))||{}).icon||'📦')))+'</div>';
+}
 function libCard(r){
   var sel=LF.sel&&LF.sel[r.id],tap=LF.sel?'libSel(\''+r.id+'\')':(isGroup(r)?'libGo(\''+r.id+'\')':'openRefView(\''+r.id+'\')');
   if(isGroup(r)){var kids=refKids(r.id),nf=kids.filter(isGroup).length,ne=refEntriesUnder(r.id).length;
@@ -2790,11 +2807,15 @@ function rRef(){
   h+='<input class="m-in" id="re-name" placeholder="'+(g?'Folder name, e.g. Nike, Dunk Low, Novablast':'Name, e.g. Dunk Low Premium Black Leather')+'" value="'+esc(f.name)+'">';
   h+='<div class="row" style="margin-top:8px"><span class="hint" style="flex-shrink:0">Inside:</span><button class="btn btn-s btn-sm" style="flex:1;justify-content:flex-start;overflow:hidden" onclick="_reCap();openTreePicker({title:\'Put it in…\',exclude:[RE.f.id],start:RE.f.parent,onPick:function(d){RE.f.parent=d;if(!RE.f.cat&&d&&S.refs[d])RE.f.cat=effCat(S.refs[d]);rRef();}})">📂 '+(par?esc(refPath(par)?refPath(par)+' › ':'')+esc(par.name):'Library (top level)')+'</button></div>';
   if(g){
-    h+='<div class="m-lbl">Cover art</div><div class="row" style="align-items:center">'+libAvatar(f,72)+'<div style="flex:1;display:grid;gap:6px">'+
-      '<div class="row">'+[['cam','📷'],['gal','🖼'],['url','🔗'],['paste','📋']].map(function(x){return'<button class="btn btn-s btn-sm" style="flex:1" onclick="_reCap();pickPhoto(\''+x[0]+'\',function(d){resizeData(d,500,\'webp\',0.88).then(function(r){RE.coverNew=r;RE.f.cover=\'__new__\';rRef();});})">'+x[1]+'</button>';}).join('')+'</div>'+
-      '<div class="row"><input class="m-in" style="width:56px;text-align:center;font-size:20px;padding:4px" value="'+esc(f.emoji||'')+'" placeholder="🙂" onchange="RE.f.emoji=this.value.trim();rRef()"><input type="color" value="'+esc(f.color||'#ffffff')+'" onchange="RE.f.color=this.value;rRef()" style="width:44px;height:38px;border:none;background:none">'+
-      (f.cover?'<button class="btn btn-g btn-sm" onclick="RE.f.cover=\'\';RE.coverNew=null;rRef()">Remove art</button>':'')+'</div></div></div>';
-    h+='<div class="hint" style="margin-top:4px">Use a logo, a hero shot, your own drawing, or just an emoji + color.</div>';
+    var cm=RE.cm||(f.cover?'img':f.coverFrom?'entry':f.emoji?'emoji':'auto');
+    h+='<div class="m-lbl">Cover art</div><div class="row" style="align-items:center">'+libAvatar(f,84)+'<div style="flex:1;min-width:0;display:grid;gap:6px">'+
+      '<div class="seg">'+[['auto','Preview'],['entry','From inside'],['img','Picture'],['emoji','Emoji']].map(function(o){return'<button class="'+(cm===o[0]?'on':'')+'" onclick="_reCap();coverMode(\''+o[0]+'\')">'+o[1]+'</button>';}).join('')+'</div>'+
+      (cm==='img'?'<div class="row">'+[['cam','📷'],['gal','🖼'],['url','🔗'],['paste','📋']].map(function(x){return'<button class="btn btn-s btn-sm" style="flex:1" onclick="_reCap();pickPhoto(\''+x[0]+'\',function(d){resizeData(d,600,\'webp\',0.88).then(function(r){RE.coverNew=r;RE.f.cover=\'__new__\';RE.f.coverFrom=\'\';rRef();});})">'+x[1]+'</button>';}).join('')+'</div>'+
+        '<div class="seg"><button class="'+(f.coverFit!=='contain'?'on':'')+'" onclick="RE.f.coverFit=\'cover\';rRef()">Fill square</button><button class="'+(f.coverFit==='contain'?'on':'')+'" onclick="RE.f.coverFit=\'contain\';rRef()">Fit whole image</button></div>':'')+
+      (cm==='entry'?'<button class="btn btn-s btn-sm" onclick="_reCap();coverPickEntry()">🧩 '+(f.coverFrom&&S.refs[f.coverFrom]?'Change: '+esc(S.refs[f.coverFrom].name):'Pick an entry inside')+'</button>':'')+
+      (cm==='emoji'?'<div class="row"><input class="m-in" style="width:56px;text-align:center;font-size:20px;padding:4px" value="'+esc(f.emoji||'')+'" placeholder="🙂" onchange="RE.f.emoji=this.value.trim();rRef()"><input type="color" value="'+esc(f.color||'#ffffff')+'" onchange="RE.f.color=this.value;rRef()" style="width:44px;height:38px;border:none;background:none"></div>':'')+
+      '</div></div>';
+    h+='<div class="hint" style="margin-top:4px">'+(cm==='auto'?'Shows up to 4 pictures of what\'s inside this folder.':cm==='entry'?'Uses the main picture of one entry in this folder.':cm==='img'?'A logo, hero shot or your own art. “Fill square” crops to fill; “Fit” shows it all.':'An emoji on a color.')+'</div>';
     if(_idKind(f.cat)==='shoe')h+='<button class="btn btn-g btn-sm" onclick="_reCap();openShoeBuilder(RE.f.mock,function(m){RE.f.mock=m;shoePNG(m).then(function(p){RE.coverNew=p;RE.f.cover=\'__new__\';rRef();});})">👟 Draw a mockup as cover</button>';
   }else{
     h+='<div class="m-lbl">Pictures <span class="r hint">add as many angles as you like</span></div><div class="ref-thumbs">'+
@@ -2819,7 +2840,7 @@ function refSave(){
   var tasks=RE.add.map(function(d){return resizeData(d,900,'webp',0.86).then(function(x){f.imgs.push(imgSave(x));});});
   var oldCover=RE.isNew?'':(S.refs[f.id]||{}).cover||'';
   if(f.cover==='__new__'&&RE.coverNew){f.cover=imgSave(RE.coverNew);}else if(f.cover==='__new__')f.cover=oldCover;
-  if(oldCover&&oldCover!==f.cover)fbDeleteImage(oldCover);
+  if(oldCover&&oldCover!==f.cover&&!_imgInUse(oldCover,f.id))fbDeleteImage(oldCover);
   var mp=(!f.group&&f.mock)?shoePNG(f.mock).then(function(p){if(f.mockImg)fbDeleteImage(f.mockImg);f.mockImg=imgSave(p);}):Promise.resolve();
   Promise.all(tasks.concat([mp])).then(function(){
     var old=RE.isNew?null:S.refs[f.id];
@@ -2833,7 +2854,7 @@ function refDelete(){var f=RE.f;
   refDeleteById(f.id);RE=null;closeModal(2);if(LF.node===f.id)LF.node=f.parent||'';render();}
 function refDeleteById(id){var f=S.refs[id];if(!f)return;
   refKids(id).forEach(function(k){var x=clone(k);x.parent=f.parent||'';put('refs',x);});
-  (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);if(f.cover)fbDeleteImage(f.cover);
+  (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);if(f.cover&&!_imgInUse(f.cover,f.id))fbDeleteImage(f.cover);
   vals(S.items).forEach(function(i){if(i.ref===f.id){var x=clone(i);delete x.ref;put('items',x);}});
   del('refs',id);}
 
@@ -2926,6 +2947,19 @@ function rSB(){
   h+='<div class="m-lbl">Side logo</div>'+opt('logo',[['none','None'],['curve','Curve'],['stripes','Stripes'],['panel','Panel'],['badge','Badge']]);
   h+='<div class="m-lbl">Extras</div><div class="chips" style="flex-wrap:wrap">'+tog('overlay','Toe & heel overlays')+tog('strap','Strap')+tog('air','Air window')+tog('speckle','Speckled sole')+tog('perf','Perforated toe')+'</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="SB.m=shoeDefault();rSB()">Reset</button><button class="btn btn-p" onclick="var cb=SB.cb,m=SB.m;closeModal(3);cb(m)">Use mockup</button></div>';
+  openModal(h,3);
+}
+
+function coverMode(m){var f=RE.f;RE.cm=m;if(m==='auto'){f.cover='';f.coverFrom='';f.emoji='';RE.coverNew=null;}
+  else if(m==='entry'){f.cover='';RE.coverNew=null;f.emoji='';if(!f.coverFrom)return coverPickEntry();}
+  else if(m==='img'){f.coverFrom='';f.emoji='';if(!f.cover){f.cover='';rRef();return pickPhoto('gal',function(d){resizeData(d,600,'webp',0.88).then(function(r){RE.coverNew=r;RE.f.cover='__new__';rRef();});});}}
+  else if(m==='emoji'){f.cover='';f.coverFrom='';RE.coverNew=null;if(!f.emoji)f.emoji='📁';}
+  rRef();}
+function coverPickEntry(){
+  var ents=RE.isNew?[]:refEntriesUnder(RE.f.id).filter(function(r){return _entryThumb(r);});
+  if(!ents.length)return toast(RE.isNew?'Save the folder and add entries first':'No entries with pictures inside yet');
+  var h='<div class="mo-h"><h3>Cover from…</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b"><div class="pick-grid">'+
+    ents.map(function(r){return'<div class="pick'+(RE.f.coverFrom===r.id?' on':'')+'" onclick="RE.f.coverFrom=\''+r.id+'\';RE.f.cover=\'\';RE.f.emoji=\'\';closeModal(3);rRef()">'+imgHTML(_entryThumb(r))+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div></div>';
   openModal(h,3);
 }
 
