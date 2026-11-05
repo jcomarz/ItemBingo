@@ -139,6 +139,21 @@ textarea.m-in{min-height:64px;resize:vertical}
 .ref-thumbs .rt button{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:0}
 .sb-pal{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;margin:8px 0}
 .sb-pal button,.sb-pal label{aspect-ratio:1/1;border-radius:50%;border:2px solid #8886;display:block;position:relative;overflow:hidden}
+/* library tree */
+.crumbs{display:flex;align-items:center;gap:4px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;margin:0 0 8px;font-size:13px}
+.crumbs button{border:none;background:var(--paperDark);border-radius:12px;padding:4px 10px;font-weight:600;font-size:12px;flex-shrink:0}
+.crumbs button:last-child{background:var(--accent1);color:var(--paper)}
+.crumbs span{color:var(--inkFaint)}
+.grp-head{display:flex;align-items:center;gap:12px;padding:10px;border:1px solid var(--paperGrid);border-radius:14px}
+.lib-fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:6px}
+@media(max-width:600px){.lib-fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lib-folder{position:relative;border:1px solid var(--paperGrid);border-radius:4px 14px 14px 14px;padding:8px;background:var(--paper);box-shadow:0 1px 4px var(--shadow);min-width:0}
+.lib-folder::before{content:'';position:absolute;top:-7px;left:-1px;width:42%;height:8px;border:1px solid var(--paperGrid);border-bottom:none;border-radius:8px 8px 0 0;background:var(--paper)}
+.lib-folder.sel{outline:3px solid var(--accent1)}
+.lib-av{width:100%;aspect-ratio:1/1;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid var(--paperGrid)}
+.lib-av img{width:100%;height:100%;object-fit:contain}
+.lf-name{font-weight:700;font-size:14px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lf-meta{font-size:10px;color:var(--inkFaint)}
 .selbox{position:absolute;top:6px;right:6px;z-index:4;width:24px;height:24px;border-radius:50%;border:2px solid var(--accent1);background:var(--paper);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
 .inv-card.sel .selbox{background:var(--accent1);color:var(--paper)}
 .selbar{position:fixed;left:8px;right:8px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:62;display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:14px;background:var(--paper);border:1px solid var(--paperGrid);box-shadow:0 6px 20px rgba(0,0,0,.25)}
@@ -263,7 +278,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.7';
+var APP_VERSION='v1.9';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -284,10 +299,10 @@ function clone(o){return JSON.parse(JSON.stringify(o));}
 var LS_KEY='ib_local';
 var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all',sort:'recent',search:'',calY:new Date().getFullYear(),calM:new Date().getMonth(),
   geminiKey:'',openaiKey:'',claudeKey:'',claudeModel:'claude-sonnet-5-5',geminiTextModel:'gemini-flash-latest',idProvider:'auto',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
-  bgModel:'isnet_fp16',autoProcess:'none',syncKeys:false,activeCard:''};
+  bgModel:'isnet_fp16',keepOrig:false,autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
 function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
-var SETTING_KEYS=['serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+var SETTING_KEYS=['keepOrig','serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
 // If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
 function restoreLocalSettings(cb){
   if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
@@ -407,8 +422,16 @@ function imgGet(k,cb){
 function _imgDone(k,d){var w=_imgLoading[k]||[];delete _imgLoading[k];w.forEach(function(f){f(d);});}
 function imgHTML(k,cls,attrs){return k?'<img data-k="'+k+'" class="'+(cls||'')+'" alt="" '+(attrs||'')+'>':'';}
 // Fill every <img data-k> under root; sticker versions for data-st
+// Pictures load only when they scroll near the screen — keeps big collections fast and saves data on a new phone.
+var _hydObs=null;
 function hydrate(root){
-  (root||document).querySelectorAll('img[data-k]:not([data-h])').forEach(function(el){
+  var els=(root||document).querySelectorAll('img[data-k]:not([data-h])');
+  if(!('IntersectionObserver' in window)){els.forEach(_hydOne);return;}
+  if(!_hydObs)_hydObs=new IntersectionObserver(function(en){en.forEach(function(e){if(e.isIntersecting){_hydObs.unobserve(e.target);_hydOne(e.target);}});},{rootMargin:'600px 0px'});
+  els.forEach(function(el){el.setAttribute('data-h','0');if(IMG[el.getAttribute('data-k')]&&!el.hasAttribute('data-st'))return _hydOne(el);_hydObs.observe(el);});
+}
+function _hydOne(el){
+  (function(el){
     el.setAttribute('data-h','1');
     var k=el.getAttribute('data-k');
     var wantSticker=el.hasAttribute('data-st');
@@ -419,7 +442,7 @@ function hydrate(root){
       el.src=d;el.setAttribute('data-cut','pending');
       stickerQueue(k,d,function(s){if(s){el.src=s;el.setAttribute('data-cut','done');}else el.removeAttribute('data-cut');});
     });
-  });
+  })(el);
 }
 
 // ════════════ Firebase sync ════════════
@@ -544,34 +567,50 @@ setInterval(syncBadge,30000);
 setInterval(function(){if(FB.connected&&!FB.paused&&IMGQ.length&&!_pumping)fbPumpImages();},15000);
 
 // ════════════ Backup (real file — doesn't depend on browser storage) ════════════
+var _zipLib=null;
+function loadZip(){return _zipLib?Promise.resolve(_zipLib):new Promise(function(res,rej){var sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';sc.onload=function(){_zipLib=window.JSZip;res(_zipLib);};sc.onerror=function(){rej(new Error('Could not load the zip tool (offline?)'));};document.head.appendChild(sc);});}
+function _extOf(d){var m=/^data:image\/(\w+)/.exec(d||'');return m?(m[1]==='jpeg'?'jpg':m[1]):'img';}
+function _b64ToBytes(d){var b=atob(d.split(',')[1]),n=b.length,u=new Uint8Array(n);while(n--)u[n]=b.charCodeAt(n);return u;}
+// Full backup = .zip: data.json + images/<key>.webp|jpg|png as real image files.
+// Big libraries are split into parts (~60 MB each) so the phone never has to build one giant file.
+var ZIP_PART=60*1024*1024;
 function exportBackup(withImages){
-  var keys={};
-  var d={_type:'spotted-backup',_v:1,_exported:new Date().toISOString()};
+  var d={_type:'spotted-backup',_v:2,_exported:new Date().toISOString()};
   COLLS.forEach(function(c){d[c]=S[c];});
-  var finish=function(){
-    d.images=withImages?keys:{};
-    var blob=new Blob([JSON.stringify(d)],{type:'application/json'});
-    var fn='spotted-backup-'+tod()+(withImages?'':'-noimg')+'.json';
-    downloadBlob(blob,fn);
-    toast('Saved '+fn+' → Downloads');
-  };
-  if(!withImages)return finish();
-  idbAll('imgs',function(all){
-    var used=usedImageKeys();
-    used.forEach(function(k){if(all[k]||IMG[k])keys[k]=all[k]||IMG[k];});
-    finish();
-  });
+  if(!withImages){var fn='spotted-data-'+tod()+'.json';downloadBlob(new Blob([JSON.stringify(d)],{type:'application/json'}),fn);return toast('Saved '+fn+' → Downloads');}
+  toast('Packing photos…',4000);
+  Promise.all([loadZip(),new Promise(function(r){idbAll('imgs',r);})]).then(function(rr){
+    var JSZip=rr[0],all=rr[1],used=usedImageKeys(),parts=[[]],size=0;
+    used.forEach(function(k){var v=all[k]||IMG[k];if(!v)return;var n=v.length*0.75;if(size+n>ZIP_PART&&parts[parts.length-1].length){parts.push([]);size=0;}parts[parts.length-1].push([k,v]);size+=n;});
+    var total=parts.length,stamp=tod(),done=0,count=0;
+    d._parts=total;d._images=used.length;
+    var next=function(i){
+      if(i>=total){return toast('✅ Saved '+total+' zip'+(total>1?'s':'')+' ('+count+' photos) → Downloads',4500);}
+      var z=new JSZip();
+      if(i===0)z.file('data.json',JSON.stringify(d));
+      z.file('README.txt','Spotted backup part '+(i+1)+' of '+total+'. Import all parts in Spotted → Settings → Import (you can select them together).');
+      parts[i].forEach(function(p){z.file('images/'+p[0]+'.'+_extOf(p[1]),_b64ToBytes(p[1]),{binary:true});count++;});
+      z.generateAsync({type:'blob',compression:'STORE'}).then(function(blob){
+        var fn='spotted-backup-'+stamp+(total>1?'-part'+(i+1)+'of'+total:'')+'.zip';
+        downloadBlob(blob,fn,true);toast('Saved '+fn+(i+1<total?' — next part…':''),2500);
+        setTimeout(function(){next(i+1);},1500);
+      }).catch(function(e){alert('Backup failed: '+e.message);});
+    };
+    next(0);
+  }).catch(function(e){alert(e.message);});
 }
-function usedImageKeys(){var u={};vals(S.items).forEach(function(it){if(it.img)u[it.img]=1;if(it.orig)u[it.orig]=1;});vals(S.sightings).forEach(function(s){if(s.photo)u[s.photo]=1;});return Object.keys(u);}
-function downloadBlob(blob,fn){
-  // Android Chrome is happiest with a data: URL download
-  if(/Android/i.test(navigator.userAgent)){var r=new FileReader();r.onloadend=function(){var a=document.createElement('a');a.href=r.result;a.download=fn;document.body.appendChild(a);a.click();a.remove();};r.readAsDataURL(blob);}
+function usedImageKeys(){var u={};vals(S.items).forEach(function(it){if(it.img)u[it.img]=1;if(it.orig)u[it.orig]=1;});vals(S.sightings).forEach(function(s){if(s.photo)u[s.photo]=1;});vals(S.refs||{}).forEach(function(r){(r.imgs||[]).forEach(function(k){u[k]=1;});if(r.mockImg)u[r.mockImg]=1;if(r.cover)u[r.cover]=1;});return Object.keys(u);}
+function downloadBlob(blob,fn,big){
+  // small files: data: URL (most reliable on Android); big zips: object URL (data: URLs that size choke the browser)
+  if(!big&&/Android/i.test(navigator.userAgent)){var r=new FileReader();r.onloadend=function(){var a=document.createElement('a');a.href=r.result;a.download=fn;document.body.appendChild(a);a.click();a.remove();};r.readAsDataURL(blob);}
   else{var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fn;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href);},4000);}
 }
 function importFile(){
-  var inp=$('file-json');inp.value='';
+  var inp=$('file-json');inp.value='';inp.setAttribute('accept','.json,.zip,application/json,application/zip');inp.multiple=true;
   inp.onchange=function(){
-    var f=inp.files[0];if(!f)return;
+    var files=[].slice.call(inp.files||[]);if(!files.length)return;
+    var zips=files.filter(function(f){return /\.zip$/i.test(f.name)||/zip/.test(f.type);}),jsons=files.filter(function(f){return zips.indexOf(f)<0;});
+    if(zips.length)return importZips(zips);
     var r=new FileReader();
     r.onload=function(){
       var d;try{d=JSON.parse(r.result);}catch(e){return alert('Not valid JSON: '+e.message);}
@@ -581,9 +620,27 @@ function importFile(){
       if(d.events||d.places||d.people)return importJournalData(d);
       alert('Unrecognised file. Expected a Spotted backup, Decade Journal settings, or Decade Journal backup.');
     };
-    r.readAsText(f);
+    r.readAsText(jsons[0]);
   };
   inp.click();
+}
+function importZips(files){
+  toast('Opening '+files.length+' zip'+(files.length>1?'s':'')+'…',3000);
+  loadZip().then(function(JSZip){
+    var data=null,images={};
+    return files.reduce(function(p,f){return p.then(function(){return JSZip.loadAsync(f).then(function(z){
+      var jobs=[];
+      if(z.file('data.json'))jobs.push(z.file('data.json').async('string').then(function(t){data=JSON.parse(t);}));
+      z.folder('images').forEach(function(path,entry){if(entry.dir)return;var key=path.replace(/\.[^.]+$/,''),ext=(path.split('.').pop()||'').toLowerCase();
+        var mime=ext==='jpg'||ext==='jpeg'?'image/jpeg':ext==='png'?'image/png':'image/webp';
+        jobs.push(entry.async('base64').then(function(b){images[key]='data:'+mime+';base64,'+b;}));});
+      return Promise.all(jobs);});});},Promise.resolve()).then(function(){
+      if(!data){if(Object.keys(images).length&&confirm('No data.json in these zips (that file lives in part 1). Import just the '+Object.keys(images).length+' photos?')){Object.keys(images).forEach(function(k){IMG[k]=images[k];idbPut('imgs',k,images[k]);imgQueueUpload(k);});render();toast('Photos imported');}return;}
+      data.images=images;
+      if(data._parts&&data._parts>files.length)alert('Heads up: this backup has '+data._parts+' parts but you picked '+files.length+'. Items whose photos are in the missing parts will show without pictures until you import those parts too.');
+      importSpotted(data);
+    });
+  }).catch(function(e){alert('Could not read the zip: '+e.message);});
 }
 function importSpotted(d){
   var counts=COLLS.map(function(c){return Object.keys(d[c]||{}).length+' '+c;}).join(', ');
@@ -1265,9 +1322,9 @@ function saveItem(){
   var tasks=[];
   if(v.k)f.img=v.k;else tasks.push(resizeData(v.d,800,'webp',0.88).then(function(d){f.img=imgSave(d);}));
   // keep the untouched photo as "orig" (small) so you can redo the clean-up later
-  if(srcV&&srcV!==v&&srcV.d)tasks.push(resizeData(srcV.d,1000,'jpeg',0.82).then(function(d){f.orig=imgSave(d);}));
+  if(L.keepOrig&&srcV&&srcV!==v&&srcV.d)tasks.push(resizeData(srcV.d,1000,'jpeg',0.82).then(function(d){f.orig=imgSave(d);}));
   else if(!srcV&&IM.vers.some(function(x){return x.k&&x.k===oldOrig;}))f.orig=oldOrig;
-  else if(srcV===v)f.orig='';
+  else if(srcV===v||!L.keepOrig)f.orig='';
   Promise.all(tasks).then(finish).catch(function(e){alert('Save failed: '+e.message);});
 }
 function deleteItem(){
@@ -1898,12 +1955,17 @@ function openSettings(sec){
   // data
   h+='<div class="sec"><h4>🔑 Save settings</h4><div class="hint">Your keys are kept on this phone automatically (with a second copy in case Chrome clears site data). For a copy that survives anything — or to set up another phone — save a settings file.</div>'+
     '<div class="row" style="margin-top:8px"><button class="btn btn-p" style="flex:1" onclick="exportSettings()">⬇ Save settings file</button><button class="btn btn-s" style="flex:1" onclick="importFile()">📂 Load settings file</button></div></div>';
+  var nOrig=vals(S.items).filter(function(i){return i.orig;}).length;
+  h+='<div class="sec"><h4>🗂 Photo storage</h4><label class="toggle"><input type="checkbox" '+(L.keepOrig?'checked':'')+' onchange="L.keepOrig=this.checked;svL()">Keep the original photo after cleaning it up</label>'+
+    '<div class="hint">Off = only the cleaned-up picture is saved (about half the space). On = you can redo the clean-up later.</div>'+
+    '<div class="row" style="margin-top:8px"><button class="btn btn-s" '+(nOrig?'':'disabled')+' onclick="clearOriginals()">🧹 Remove all original photos ('+nOrig+')</button></div>'+
+    '<div class="hint" style="margin-top:4px" id="store-est">Estimating storage…</div></div>';
   h+='<div class="sec"><h4>💾 Backup to a real file</h4><div class="hint">'+nI+' items · '+nS+' sightings · '+Object.keys(S.cards).length+' cards · '+Object.keys(S.places).length+' places. Saves to Downloads — doesn\'t rely on browser storage.</div>'+
-    '<div class="row wrap" style="margin-top:8px"><button class="btn btn-p" onclick="exportBackup(true)">⬇ Full backup (with photos)</button><button class="btn btn-s" onclick="exportBackup(false)">⬇ Data only</button><button class="btn btn-s" onclick="importFile()">📂 Import…</button></div>'+
-    '<div class="hint" style="margin-top:6px">Import accepts a Spotted backup, Decade Journal settings (Firebase), or a Decade Journal backup (people + places).</div></div>';
+    '<div class="row wrap" style="margin-top:8px"><button class="btn btn-p" onclick="exportBackup(true)">⬇ Full backup (.zip with photos)</button><button class="btn btn-s" onclick="exportBackup(false)">⬇ Data only (.json)</button><button class="btn btn-s" onclick="importFile()">📂 Import…</button></div>'+
+    '<div class="hint" style="margin-top:6px">Photos are real image files inside the zip. Very big libraries split into parts (~60 MB each) — when importing, select all the parts together. Import also accepts older .json backups, Decade Journal settings, or a Decade Journal backup (people + places).</div></div>';
   h+='<div class="hint" style="text-align:center;margin:14px 0 4px">Spotted '+APP_VERSION+' · companion to Decade Journal</div>';
   h+='</div>';
-  openModal(h,1);
+  openModal(h,1);storageEstimate();
   if(sec){var el=$('sec-'+sec);if(el)el.scrollIntoView({block:'start'});}
 }
 function setAI(k,v,quiet){L[k]=v;svL();if(/Key$/.test(k))syncKeysNow();if(!quiet)openSettings('ai');}
@@ -1952,6 +2014,19 @@ function importDJPlacesLocal(){
   var n=0,t=now();djPlaces().forEach(function(p){if(vals(S.places).some(function(x){return x.name.toLowerCase()===p.name.toLowerCase()&&(x.address||'')===(p.address||'');}))return;
     var id='pl_'+gid();S.places[id]={id:id,name:p.name,address:p.address||'',lat:p.lat||null,lng:p.lng||null,u:t};dirty('places',id);n++;});
   sv();toast(n+' places imported');openSettings();
+}
+
+function clearOriginals(){
+  var its=vals(S.items).filter(function(i){return i.orig;});if(!its.length)return;
+  if(!confirm('Remove the original photo from '+its.length+' items?\n\nThe cleaned-up pictures and stickers stay. This frees space on this phone and in Firebase, but you won\'t be able to redo those clean-ups from the original.'))return;
+  its.forEach(function(it){var k=it.orig,x=clone(it);x.orig='';put('items',x);if(k&&!vals(S.items).some(function(o){return o.id!==it.id&&(o.img===k||o.orig===k);}))fbDeleteImage(k);});
+  toast('🧹 Removed '+its.length+' originals');openSettings();
+}
+function storageEstimate(){
+  idbAll('imgs',function(all){var used=usedImageKeys(),tot=0,orig=0,origSet={};vals(S.items).forEach(function(i){if(i.orig)origSet[i.orig]=1;});
+    used.forEach(function(k){var v=all[k]||IMG[k];if(!v)return;var n=v.length*0.75;tot+=n;if(origSet[k])orig+=n;});
+    var mb=function(n){return(n/1048576).toFixed(n>1048576*10?0:1)+' MB';};
+    var el=$('store-est');if(el)el.textContent=used.length+' photos ≈ '+mb(tot)+(orig?' (originals: '+mb(orig)+')':'')+' · Firebase free plan: 1 GB shared with Decade Journal';});
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2428,19 +2503,31 @@ function trDelField(which,fid){if(!confirm('Delete this field for the whole type
 function traitSummary(tr){return Object.keys(tr||{}).map(function(k){return(tr[k]||[]).join(' ');}).filter(Boolean).join(' · ');}
 
 // ── matching ──
+// ── tree helpers: refs with group:true are folders; everything has an optional parent ──
+function isGroup(r){return !!(r&&r.group);}
+function refKids(pid){pid=pid||'';return vals(S.refs).filter(function(r){return(r.parent||'')===pid&&(!r.parent||S.refs[r.parent]||pid==='');})
+  .sort(function(a,b){return(isGroup(b)-isGroup(a))||((a.order||0)-(b.order||0))||a.name.localeCompare(b.name);});}
+function refAncestors(r){var out=[],seen={},p=r&&r.parent;while(p&&S.refs[p]&&!seen[p]){seen[p]=1;out.unshift(S.refs[p]);p=S.refs[p].parent;}return out;}
+function refPath(r){return refAncestors(r).map(function(a){return a.name;}).join(' › ');}
+function effTraits(r){var t={};refAncestors(r).concat([r]).forEach(function(n){Object.keys(n.traits||{}).forEach(function(k){(n.traits[k]||[]).forEach(function(v){t[k]=t[k]||[];if(t[k].indexOf(v)<0)t[k].push(v);});});});return t;}
+function effCat(r){if(r.cat)return r.cat;var a=refAncestors(r);for(var i=a.length-1;i>=0;i--)if(a[i].cat)return a[i].cat;return'';}
+function refDescendants(gid){var out=[];(function walk(id,d){if(d>30)return;refKids(id).forEach(function(k){out.push(k);if(isGroup(k))walk(k.id,d+1);});})(gid||'',0);return out;}
+function refEntriesUnder(gid){return refDescendants(gid).filter(function(r){return!isGroup(r);});}
 function refScore(ref,sel,catId){
-  if(catId&&ref.cat!==catId)return -1;
-  var s=0,miss=0;Object.keys(sel).forEach(function(fid){var want=sel[fid]||[],have=(ref.traits||{})[fid]||[];
+  if(isGroup(ref))return -1;
+  if(catId&&effCat(ref)!==catId)return -1;
+  var tr=effTraits(ref),s=0,miss=0;Object.keys(sel).forEach(function(fid){var want=sel[fid]||[],have=tr[fid]||[];
     want.forEach(function(v){if(have.indexOf(v)>=0)s+=(fid==='line'||fid==='brand')?3:1;else if(have.length)miss++;});});
   return s-miss*0.5;
 }
-function refMatches(sel,catId,q){
+function refMatches(sel,catId,q,within){
   q=(q||'').toLowerCase().trim();var any=Object.keys(sel).some(function(k){return(sel[k]||[]).length;});
-  return vals(S.refs).map(function(r){return{r:r,s:refScore(r,sel,catId)};}).filter(function(x){
-    if(x.s<0)return false;if(q&&(x.r.name+' '+(x.r.notes||'')+' '+traitSummary(x.r.traits)).toLowerCase().indexOf(q)<0)return false;return !any||x.s>0;})
+  var pool=within?refEntriesUnder(within):vals(S.refs);
+  return pool.map(function(r){return{r:r,s:refScore(r,sel,catId)};}).filter(function(x){
+    if(x.s<0)return false;if(q&&(x.r.name+' '+refPath(x.r)+' '+(x.r.notes||'')+' '+traitSummary(effTraits(x.r))).toLowerCase().indexOf(q)<0)return false;return !any||x.s>0;})
     .sort(function(a,b){return b.s-a.s||a.r.name.localeCompare(b.r.name);});
 }
-function refThumb(r){return r.imgs&&r.imgs.length?r.imgs[0]:(r.mockImg||'');}
+function refThumb(r){return r.cover||(r.imgs&&r.imgs.length?r.imgs[0]:(r.mockImg||''));}
 function refLinkedItem(refId){return vals(S.items).find(function(i){return i.ref===refId;});}
 
 // ════════════ 🔎 FIND ════════════
@@ -2470,10 +2557,11 @@ function rFind(){
       (F.photo?'<button class="btn btn-s btn-sm" onclick="ID={photo:F.photo};idLens()">🔍 Google Lens</button><button class="btn btn-g btn-sm" onclick="F.photo=null;rFind()">✕</button>':'')+'</div>':'')+'</div>';
   if(!F.itemId)h+='<div style="margin-top:8px">'+placeChip(F.place,'_fCap();openPlacePicker(function(id){F.place=id;rFind();})','_fCap();F.place=\'\';rFind()')+'</div>';
   // matches
-  var total=vals(S.refs).filter(function(r){return r.cat===F.cat;}).length;
+  var total=vals(S.refs).filter(function(r){return!isGroup(r)&&effCat(r)===F.cat;}).length;
   h+='<div class="m-lbl" style="margin-top:14px">📚 Your library <span class="r">'+m.length+' of '+total+'</span></div>';
   h+='<input class="m-in" id="f-q" placeholder="Search library names / notes" value="'+esc(F.q)+'" oninput="F.q=this.value;debounce(\'fq\',function(){var e=$(\'find-match\');if(e){e.innerHTML=findMatchHTML();hydrate(e);}},200)" style="margin-bottom:8px">';
   h+='<div id="find-match">'+findMatchHTML()+'</div>';
+  if(vals(S.refs).some(isGroup))h+='<button class="btn btn-s btn-block" style="margin-top:8px" onclick="_fCap();openTreePicker({title:\'Browse your library\',browse:true,fromFind:true})">📂 Browse folders instead</button>';
   var words=[].concat.apply([],Object.keys(F.traits).map(function(k){return F.traits[k];})).join(' ');
   h+='<div class="row" style="margin-top:10px"><a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(words+' '+((cat(F.cat)||{}).name||''))+'" target="_blank" rel="noopener">🖼 Google Images for these words</a>'+
     (idProvider()?'<button class="btn btn-g btn-sm" onclick="_fCap();fToAI()">🤖 Ask AI</button>':'')+'</div>';
@@ -2505,60 +2593,114 @@ function refPicked(refId){
   var r=S.refs[refId];if(!r)return;
   var date=F?F.date:tod(),place=F?F.place:'';
   closeModal(2);closeModal(1);
-  if(F&&F.itemId&&S.items[F.itemId]){var it=clone(S.items[F.itemId]);it.name=r.name;it.mystery=false;it.ref=r.id;it.traits=clone(r.traits||{});if(!it.img&&refThumb(r))it.img=refThumb(r);put('items',it);render();toast('❓ → '+r.name);F=null;return openItemModal(it.id);}
+  if(F&&F.itemId&&S.items[F.itemId]){var it=clone(S.items[F.itemId]);it.name=r.name;it.mystery=false;it.ref=r.id;it.traits=effTraits(r);if(!it.img&&refThumb(r))it.img=refThumb(r);put('items',it);render();toast('❓ → '+r.name);F=null;return openItemModal(it.id);}
   var linked=refLinkedItem(r.id)||vals(S.items).find(function(i){return i.name.toLowerCase()===r.name.toLowerCase();});
   if(linked){addSighting({item:linked.id,date:date,place:place});if(!linked.ref){var l2=clone(linked);l2.ref=r.id;put('items',l2);}render();toast('✅ Spotted: '+r.name);F=null;return;}
-  var it2={id:'it_'+gid(),name:r.name,cat:r.cat,ref:r.id,traits:clone(r.traits||{}),notes:r.notes||'',folders:[],created:now(),img:refThumb(r)};
+  var it2={id:'it_'+gid(),name:r.name,cat:effCat(r),ref:r.id,traits:effTraits(r),notes:r.notes||'',folders:[],created:now(),img:refThumb(r)};
   put('items',it2);addSighting({item:it2.id,date:date,place:place});if(place){L.lastPlace=place;L.lastPlaceDay=tod();svL();}
   render();toast('✅ Added '+r.name+' + sighting');F=null;openItemModal(it2.id);
 }
 
-// ════════════ 📚 LIBRARY TAB ════════════
-var LF={cat:'all',traits:{},q:'',sel:null};
+// ════════════ 📚 LIBRARY TAB — a tree: Nike › Dunk Low › colorways ════════════
+var LF={cat:'all',traits:{},q:'',sel:null,node:''};
+try{LF.node=L.libNode||'';}catch(e){}
+function libGo(id){LF.node=id||'';L.libNode=LF.node;svL();LF.q='';LF.traits={};LF.sel=null;window.scrollTo(0,0);render();}
+function libFlat(){return !!(LF.q.trim()||Object.keys(LF.traits).some(function(k){return(LF.traits[k]||[]).length;})||LF.cat!=='all');}
 function viewLibrary(){
-  var all=vals(S.refs);
-  var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search your library…" value="'+esc(LF.q)+'" oninput="LF.q=this.value;debounce(\'lq\',function(){var g=$(\'lib-grid\');if(g){g.innerHTML=libGridHTML();hydrate(g);}},200)" style="flex:1">'+
-    '<button class="btn btn-p" onclick="openRefEditor(null,{cat:LF.cat!==\'all\'?LF.cat:\'\'})">＋</button></div>';
-  h+='<div class="chips"><button class="chip'+(LF.cat==='all'?' on':'')+'" onclick="LF.cat=\'all\';LF.traits={};render()">All <span style="opacity:.55">'+all.length+'</span></button>'+
-    catList().map(function(c){var n=all.filter(function(r){return r.cat===c.id;}).length;return'<button class="chip'+(LF.cat===c.id?' on':'')+'" onclick="LF.cat=\''+c.id+'\';LF.traits={};render()">'+c.icon+' '+esc(c.name)+(n?' <span style="opacity:.55">'+n+'</span>':'')+'</button>';}).join('')+'</div>';
-  h+='<div class="row wrap" style="margin:2px 0 8px"><button class="btn btn-s btn-sm" onclick="openStudy()">🃏 Study</button><button class="btn btn-s btn-sm" onclick="LF.sel=LF.sel?null:{};render()">'+(LF.sel?'✖️ Cancel compare':'⚖️ Compare')+'</button>'+
-    (LF.sel&&Object.keys(LF.sel).length>=2?'<button class="btn btn-p btn-sm" onclick="openCompare()">Compare '+Object.keys(LF.sel).length+' →</button>':'')+
-    '<button class="btn btn-g btn-sm" onclick="libFromItems()">↧ Add from my items</button></div>';
-  if(LF.cat!=='all'){var nf=Object.keys(LF.traits).filter(function(k){return LF.traits[k].length;}).length;
-    h+='<details class="sec" style="margin-top:0" '+(TR_OPEN.LF._open?'open':'')+' ontoggle="TR_OPEN.LF._open=this.open"><summary style="font-weight:700;font-size:13px">Filter by details'+(nf?' ('+nf+')':'')+'</summary>'+traitsHTML('LF',TR_OPEN.LF)+'</details>';}
+  if(LF.node&&!S.refs[LF.node])LF.node='';
+  var node=LF.node?S.refs[LF.node]:null;
+  var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search '+(node?esc(node.name):'your library')+'…" value="'+esc(LF.q)+'" oninput="LF.q=this.value;debounce(\'lq\',function(){var g=$(\'lib-grid\');if(g){g.innerHTML=libGridHTML();hydrate(g);}},250)" style="flex:1">'+
+    '<button class="btn btn-p" onclick="libAddMenu()">＋</button></div>';
+  // breadcrumb
+  var crumbs=node?refAncestors(node).concat([node]):[];
+  h+='<div class="crumbs"><button onclick="libGo(\'\')">📚 Library</button>'+crumbs.map(function(c){return'<span>›</span><button onclick="libGo(\''+c.id+'\')">'+esc(c.name)+'</button>';}).join('')+'</div>';
+  if(node){var k=refThumb(node),ne=refEntriesUnder(node.id).length;
+    h+='<div class="grp-head">'+libAvatar(node,64)+'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:18px">'+esc(node.name)+'</div><div class="hint">'+ne+' entr'+(ne===1?'y':'ies')+(traitSummary(node.traits)?' · '+esc(traitSummary(node.traits)):'')+'</div></div>'+
+      '<button class="btn btn-s btn-sm" onclick="openRefEditor(\''+node.id+'\')">✏️</button></div>';
+    if(node.notes)h+='<div class="sec" style="margin-top:6px"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap">'+esc(node.notes)+'</div></div>';}
+  h+='<div class="row wrap" style="margin:8px 0"><button class="btn btn-s btn-sm" onclick="openStudy()">🃏 Study'+(node?' this':'')+'</button><button class="btn btn-s btn-sm" onclick="LF.sel=LF.sel?null:{};render()">'+(LF.sel?'✖️ Done selecting':'☑️ Select')+'</button>'+
+    '<button class="btn btn-g btn-sm" onclick="libFromItems()">↧ From my items</button>'+
+    '<button class="btn btn-g btn-sm" onclick="TR_OPEN.LF._open=!TR_OPEN.LF._open;render()">🔎 Filter</button></div>';
+  if(TR_OPEN.LF._open){
+    h+='<div class="sec" style="margin-top:0"><div class="chips" style="flex-wrap:wrap"><button class="chip'+(LF.cat==='all'?' on':'')+'" onclick="LF.cat=\'all\';LF.traits={};render()">Any type</button>'+catList().map(function(c){return'<button class="chip'+(LF.cat===c.id?' on':'')+'" onclick="LF.cat=\''+c.id+'\';LF.traits={};render()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>'+
+      (LF.cat!=='all'?traitsHTML('LF',TR_OPEN.LF):'<div class="hint">Pick a type to filter by its details.</div>')+'</div>';}
+  if(LF.sel){var ns=Object.keys(LF.sel).filter(function(id){return S.refs[id];}),ents=ns.filter(function(id){return!isGroup(S.refs[id]);});
+    h+='<div class="selbar"><b>'+ns.length+'</b><div class="spacer"></div><button class="btn btn-s btn-sm" '+(ns.length?'':'disabled')+' onclick="libMoveSel()">📂 Move</button>'+
+      '<button class="btn btn-s btn-sm" '+(ents.length>=2&&ents.length<=3&&ents.length===ns.length?'':'disabled')+' onclick="openCompare()">⚖️ Compare</button><button class="btn btn-d btn-sm" '+(ns.length?'':'disabled')+' onclick="libDeleteSel()">🗑</button></div>';}
   h+='<div id="lib-grid">'+libGridHTML()+'</div>';
   return h;
 }
-function libGridHTML(){
-  var list=LF.cat==='all'?vals(S.refs).filter(function(r){var q=LF.q.toLowerCase();return!q||(r.name+' '+(r.notes||'')+' '+traitSummary(r.traits)).toLowerCase().indexOf(q)>=0;}).sort(function(a,b){return a.name.localeCompare(b.name);})
-    :refMatches(LF.traits,LF.cat,LF.q).map(function(x){return x.r;});
-  if(!vals(S.refs).length)return'<div class="empty"><div class="big">📚</div><b>Build your own reference library.</b><br>Add pics you collect — screenshots, saved images, your own photos — tag their details (brand, line, sole, colors…), and add the tells that help <i>you</i> tell them apart.<br><br>Then 🔎 Find narrows to the right ones while you scroll your own pictures.</div>';
-  if(!list.length)return'<div class="empty">No matches.</div>';
-  return'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(function(r){var k=refThumb(r),sel=LF.sel&&LF.sel[r.id],it=refLinkedItem(r.id),n=it?itemSightings(it.id).length:0;
-    var line=(r.traits&&(r.traits.line||r.traits.type)||[]).join(' / ');
-    return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(LF.sel?'libSel(\''+r.id+'\')':'openRefView(\''+r.id+'\')')+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
-      (n?'<div class="ribbon">×'+n+'</div>':'')+(r.imgs&&r.imgs.length>1?'<div class="ribbon none" style="left:auto;right:6px;top:6px;border-radius:5px">'+r.imgs.length+' pics</div>':'')+
-      '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker&&r.imgs&&r.imgs.length?'data-st':''):'<div class="inv-noimg">'+((cat(r.cat)||{}).icon||'📦')+'</div>')+'</div>'+
-      '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div><div class="inv-meta">'+esc(line)+'</div></div></div>';}).join('')+'</div>';
+function libAvatar(r,size){var k=refThumb(r);size=size||0;
+  var st=size?'width:'+size+'px;height:'+size+'px;flex-shrink:0;':'';
+  if(k)return'<div class="lib-av" style="'+st+'background:'+(r.color||'#fff')+'">'+imgHTML(k)+'</div>';
+  return'<div class="lib-av" style="'+st+'background:'+(r.color||'var(--paperDark)')+';font-size:'+(size?Math.round(size*0.5):40)+'px">'+esc(r.emoji||(isGroup(r)?'📁':((cat(effCat(r))||{}).icon||'📦')))+'</div>';}
+function libCard(r){
+  var sel=LF.sel&&LF.sel[r.id],tap=LF.sel?'libSel(\''+r.id+'\')':(isGroup(r)?'libGo(\''+r.id+'\')':'openRefView(\''+r.id+'\')');
+  if(isGroup(r)){var kids=refKids(r.id),nf=kids.filter(isGroup).length,ne=refEntriesUnder(r.id).length;
+    return'<div class="lib-folder'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+libAvatar(r)+
+      '<div class="lf-name">'+esc(r.name)+'</div><div class="lf-meta">'+(nf?nf+' folder'+(nf>1?'s':'')+' · ':'')+ne+' entr'+(ne===1?'y':'ies')+'</div></div>';}
+  var k=refThumb(r),it=refLinkedItem(r.id),n=it?itemSightings(it.id).length:0;
+  return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+(n?'<div class="ribbon">×'+n+'</div>':'')+
+    '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker&&r.imgs&&r.imgs.length?'data-st':''):'<div class="inv-noimg">'+((cat(effCat(r))||{}).icon||'📦')+'</div>')+'</div>'+
+    '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div>'+(libFlat()?'<div class="inv-meta">'+esc(refPath(r))+'</div>':'')+'</div></div>';
 }
-function libSel(id){if(LF.sel[id])delete LF.sel[id];else{if(Object.keys(LF.sel).length>=3)return toast('Compare up to 3');LF.sel[id]=1;}render();}
+function libGridHTML(){
+  if(!vals(S.refs).length)return'<div class="empty"><div class="big">📚</div><b>Build your own reference library.</b><br>Make folders as deep as you like — <b>Nike › Dunk Low › colorways</b> — each with its own cover art. Details you set on a folder (brand, line…) are shared by everything inside it.<br><br>Tap <b>＋</b> to start with a folder.</div>';
+  if(libFlat()){var list=refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;});
+    var groups=LF.q.trim()?refDescendants(LF.node).filter(function(g){return isGroup(g)&&g.name.toLowerCase().indexOf(LF.q.toLowerCase().trim())>=0;}):[];
+    if(!list.length&&!groups.length)return'<div class="empty">No matches.</div>';
+    return(groups.length?'<div class="lib-fgrid">'+groups.map(libCard).join('')+'</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(libCard).join('')+'</div>';}
+  var kids=refKids(LF.node),gs=kids.filter(isGroup),es=kids.filter(function(r){return!isGroup(r);});
+  var h='';
+  if(gs.length)h+='<div class="lib-fgrid">'+gs.map(libCard).join('')+'</div>';
+  if(es.length)h+=(gs.length?'<div class="m-lbl" style="margin-top:14px">Entries here</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+es.map(libCard).join('')+'</div>';
+  if(!gs.length&&!es.length)h+='<div class="empty" style="padding:24px">Empty folder. Tap <b>＋</b> to add a sub-folder (e.g. a silhouette) or an entry (e.g. a colorway).</div>';
+  return h;
+}
+function libAddMenu(){
+  var here=LF.node?S.refs[LF.node]:null;
+  var h='<div class="mo-h"><h3>Add to '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<button class="btn btn-s btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{group:true,parent:LF.node})">📁 New folder <span class="hint">brand, silhouette, line…</span></button>'+
+    '<button class="btn btn-p btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{parent:LF.node})">🏷 New entry <span style="opacity:.7;font-weight:500">a colorway / specific item</span></button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);libFromItems()">↧ From my spotted items</button></div>';
+  openModal(h,1);
+}
+function libSel(id){if(LF.sel[id])delete LF.sel[id];else LF.sel[id]=1;render();}
+function libMoveSel(){var ids=Object.keys(LF.sel);openTreePicker({title:'Move '+ids.length+' to…',exclude:ids,onPick:function(dest){ids.forEach(function(id){var r=clone(S.refs[id]);r.parent=dest;put('refs',r);});LF.sel=null;toast('Moved');render();}});}
+function libDeleteSel(){var ids=Object.keys(LF.sel).filter(function(id){return S.refs[id];});if(!confirm('Delete '+ids.length+' selected? Folders\' contents move up a level.'))return;ids.forEach(function(id){refDeleteById(id);});LF.sel=null;render();}
 function libFromItems(){
   openItemPicker(function(id){var it=S.items[id];if(!it)return;
-    var ex=vals(S.refs).find(function(r){return r.name.toLowerCase()===it.name.toLowerCase();});if(ex){toast('Already in your library');return openRefView(ex.id);}
-    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
+    var ex=vals(S.refs).find(function(r){return!isGroup(r)&&r.name.toLowerCase()===it.name.toLowerCase();});if(ex){toast('Already in your library');return openRefView(ex.id);}
+    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),parent:LF.node||'',cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
     var x=clone(it);x.ref=r.id;put('items',x);render();openRefEditor(r.id);
-  },{title:'Add which item to the library?'});
+  },{title:'Add which item here?'});
 }
-
+// folder picker (move / choose location / browse in Find)
+var TP=null;
+function openTreePicker(o){TP={o:o,node:o.start||''};rTP();}
+function rTP(){
+  var o=TP.o,node=TP.node?S.refs[TP.node]:null,ex=o.exclude||[];
+  var blocked=function(id){if(ex.indexOf(id)>=0)return true;var r=S.refs[id];return refAncestors(r).some(function(a){return ex.indexOf(a.id)>=0;});};
+  var kids=refKids(TP.node).filter(function(r){return o.browse||isGroup(r);});
+  var h='<div class="mo-h"><h3>'+esc(o.title||'Choose a folder')+'</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
+  h+='<div class="crumbs"><button onclick="TP.node=\'\';rTP()">📚 Library</button>'+(node?refAncestors(node).concat([node]).map(function(c){return'<span>›</span><button onclick="TP.node=\''+c.id+'\';rTP()">'+esc(c.name)+'</button>';}).join(''):'')+'</div>';
+  h+=kids.length?kids.map(function(r){var g=isGroup(r),bl=g&&blocked(r.id);
+    return'<div class="li" style="'+(bl?'opacity:.35':'')+'" onclick="'+(bl?'':g?'TP.node=\''+r.id+'\';rTP()':'closeModal(3);openRefView(\''+r.id+'\','+(o.fromFind?'true':'false')+')')+'">'+libAvatar(r,40)+'<div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+(g?refEntriesUnder(r.id).length+' entries':'entry')+'</div></div>'+(g?'<span>›</span>':'')+'</div>';}).join(''):'<div class="hint" style="padding:10px 0">'+(o.browse?'Empty.':'No sub-folders here.')+'</div>';
+  h+='</div>';
+  if(!o.browse)h+='<div class="mo-f"><button class="btn btn-s" onclick="var n=prompt(\'New folder name:\');if(n){var g=put(\'refs\',{id:\'rf_\'+gid(),group:true,name:n.trim(),parent:TP.node,traits:{},imgs:[],created:now()});TP.node=g.id;rTP();}">＋ New folder here</button><button class="btn btn-p" onclick="var d=TP.node,cb=TP.o.onPick;closeModal(3);cb(d)">Put it '+(node?'in '+esc(node.name):'at top level')+'</button></div>';
+  openModal(h,3);
+}
 // ── view one reference ──
 function openRefView(id,fromFind){
   var r=S.refs[id];if(!r)return;var it=refLinkedItem(id),ss=it?itemSightings(it.id):[];
   var imgs=(r.imgs||[]).slice();if(r.mockImg)imgs.push(r.mockImg);
+  if(isGroup(r)){closeModal(1);setTab('lib');return libGo(id);}
   var h='<div class="mo-h"><h3>'+esc(r.name)+'</h3><button class="icon-btn" onclick="closeModal(2);openRefEditor(\''+id+'\')">✏️</button><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  if(r.parent&&S.refs[r.parent])h+='<div class="crumbs" style="margin-top:-6px">'+refAncestors(r).map(function(c,i){return(i?'<span>›</span>':'')+'<button onclick="closeModal(2);closeModal(1);setTab(\'lib\');libGo(\''+c.id+'\')">'+esc(c.name)+'</button>';}).join('')+'</div>';
   h+=imgs.length?'<div class="ref-car">'+imgs.map(function(k){return imgHTML(k,'','onclick="refZoom(this)"');}).join('')+'</div>':'<div class="empty" style="padding:20px">No pictures yet — tap ✏️ to add some.</div>';
   if(imgs.length>1)h+='<div class="hint" style="text-align:center">swipe for '+imgs.length+' pictures</div>';
-  var fs=traitSchema(r.cat);
-  h+='<div style="margin-top:8px">'+fs.map(function(f){var v=(r.traits||{})[f.id];if(!v||!v.length)return'';var mine=F&&fromFind?(F.traits[f.id]||[]):[];
+  var fs=traitSchema(effCat(r)),et=effTraits(r);
+  h+='<div style="margin-top:8px">'+fs.map(function(f){var v=et[f.id];if(!v||!v.length)return'';var mine=F&&fromFind?(F.traits[f.id]||[]):[];
     return'<div class="row" style="align-items:flex-start;padding:3px 0"><span class="hint" style="width:96px;flex-shrink:0">'+esc(f.name)+'</span><div class="chips" style="flex-wrap:wrap;padding:0">'+v.map(function(x){return'<span class="chip" style="'+(mine.indexOf(x)>=0?'border-color:#16a34a;background:#16a34a22':'')+'">'+(f.type==='color'?'<span style="width:10px;height:10px;border-radius:50%;background:'+_colorHex(x)+';display:inline-block;border:1px solid #8884"></span>':'')+esc(x)+'</span>';}).join('')+'</div></div>';}).join('')+'</div>';
   if(r.notes)h+='<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap;margin-top:3px">'+esc(r.notes)+'</div></div>';
   if(r.link)h+='<a class="hint" href="'+esc(r.link)+'" target="_blank" rel="noopener">🔗 '+esc(r.link.slice(0,60))+'</a>';
@@ -2574,27 +2716,40 @@ var RE=null;
 function openRefEditor(id,o){
   o=o||{};
   if(id&&S.refs[id])RE={f:clone(S.refs[id]),isNew:false,add:[]};
-  else RE={f:{id:'rf_'+gid(),name:o.name||'',cat:o.cat||(catList()[0]||{}).id||'',traits:o.traits||{},imgs:[],notes:o.notes||'',link:'',mock:o.mock||null,created:now()},isNew:true,add:[],fromFind:o.fromFind};
+  else{var par=o.parent!=null?o.parent:(L.tab==='lib'?LF.node:'');var pc=par&&S.refs[par]?effCat(S.refs[par]):'';
+    RE={f:{id:'rf_'+gid(),name:o.name||'',group:!!o.group,parent:par||'',cat:o.cat||pc||(o.group?'':(catList()[0]||{}).id||''),traits:o.traits||{},imgs:[],notes:o.notes||'',link:'',mock:o.mock||null,created:now()},isNew:true,add:[],fromFind:o.fromFind};}
   RE.f.traits=RE.f.traits||{};RE.f.imgs=RE.f.imgs||[];
   if(o.photo)RE.add.push(o.photo);
-  TR_OPEN.RE={};traitSchema(RE.f.cat).forEach(function(f){TR_OPEN.RE[f.id]=true;});
+  TR_OPEN.RE={};traitSchema(effCat(RE.f)||RE.f.cat).forEach(function(f){TR_OPEN.RE[f.id]=!RE.f.group;});
   rRef();
 }
 function _reCap(){if(!RE)return;var e;if((e=$('re-name')))RE.f.name=e.value;if((e=$('re-notes')))RE.f.notes=e.value;if((e=$('re-link')))RE.f.link=e.value;}
 function rRef(){
-  var f=RE.f;
-  var h='<div class="mo-h"><h3>📚 '+(RE.isNew?'New reference':'Edit reference')+'</h3>'+(RE.isNew?'':'<button class="icon-btn" onclick="refDelete()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" id="re-b">';
-  h+='<input class="m-in" id="re-name" placeholder="Name, e.g. Nike Dunk Low Premium Black Leather" value="'+esc(f.name)+'">';
-  h+='<div class="m-lbl">Pictures <span class="r hint">add as many angles as you like</span></div><div class="ref-thumbs">'+
-    f.imgs.map(function(k,i){return'<div class="rt">'+imgHTML(k)+'<button onclick="_reCap();RE.f.imgs.splice('+i+',1);rRef()">✕</button>'+(i?'<button style="left:2px;right:auto" onclick="_reCap();var a=RE.f.imgs;a.unshift(a.splice('+i+',1)[0]);rRef()">★</button>':'')+'</div>';}).join('')+
-    RE.add.map(function(d,i){return'<div class="rt"><img src="'+d+'"><button onclick="_reCap();RE.add.splice('+i+',1);rRef()">✕</button></div>';}).join('')+'</div>';
-  h+='<div class="src-row" style="margin-top:6px">'+[['cam','📷','Camera'],['gal','🖼','Gallery'],['url','🔗','Web URL'],['paste','📋','Paste']].map(function(s){return'<button class="btn btn-s" onclick="_reCap();pickPhoto(\''+s[0]+'\',function(d){RE.add.push(d);rRef();})"><span>'+s[1]+'</span>'+s[2]+'</button>';}).join('')+'</div>';
-  h+='<div class="hint" style="margin-top:4px">Screenshots work great — crop them first in your gallery. Tip: in Chrome, long-press any image → Share → Spotted.</div>';
-  h+='<div class="m-lbl">Type</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_reCap();RE.f.cat=\''+c.id+'\';rRef()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
-  h+='<div class="m-lbl">Details</div>'+traitsHTML('RE',TR_OPEN.RE);
-  if(_idKind(f.cat)==='shoe')h+='<div class="m-lbl">👟 Mockup <span class="r hint">optional</span></div><div onclick="_reCap();openShoeBuilder(RE.f.mock,function(m){RE.f.mock=m;rRef();})" style="cursor:pointer;border:1px dashed var(--paperGrid);border-radius:10px">'+shoeSVG(f.mock||shoeDefault(),false)+'</div>';
-  h+='<div class="m-lbl">👀 Tells <span class="r hint">how YOU tell it apart</span></div><textarea class="m-in" id="re-notes" placeholder="e.g. Dunk: toe box overlay wraps the front, padded collar, swoosh ends at heel. AF1 has a thicker sole and perforated toe.">'+esc(f.notes||'')+'</textarea>';
-  h+='<input class="m-in" id="re-link" placeholder="Link (optional)" value="'+esc(f.link||'')+'" style="margin-top:6px">';
+  var f=RE.f,g=f.group,par=f.parent&&S.refs[f.parent];
+  var h='<div class="mo-h"><h3>'+(g?'📁 ':'🏷 ')+(RE.isNew?(g?'New folder':'New entry'):(g?'Edit folder':'Edit entry'))+'</h3>'+(RE.isNew?'':'<button class="icon-btn" onclick="refDelete()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" id="re-b">';
+  h+='<input class="m-in" id="re-name" placeholder="'+(g?'Folder name, e.g. Nike, Dunk Low, Novablast':'Name, e.g. Dunk Low Premium Black Leather')+'" value="'+esc(f.name)+'">';
+  h+='<div class="row" style="margin-top:8px"><span class="hint" style="flex-shrink:0">Inside:</span><button class="btn btn-s btn-sm" style="flex:1;justify-content:flex-start;overflow:hidden" onclick="_reCap();openTreePicker({title:\'Put it in…\',exclude:[RE.f.id],start:RE.f.parent,onPick:function(d){RE.f.parent=d;if(!RE.f.cat&&d&&S.refs[d])RE.f.cat=effCat(S.refs[d]);rRef();}})">📂 '+(par?esc(refPath(par)?refPath(par)+' › ':'')+esc(par.name):'Library (top level)')+'</button></div>';
+  if(g){
+    h+='<div class="m-lbl">Cover art</div><div class="row" style="align-items:center">'+libAvatar(f,72)+'<div style="flex:1;display:grid;gap:6px">'+
+      '<div class="row">'+[['cam','📷'],['gal','🖼'],['url','🔗'],['paste','📋']].map(function(x){return'<button class="btn btn-s btn-sm" style="flex:1" onclick="_reCap();pickPhoto(\''+x[0]+'\',function(d){resizeData(d,500,\'webp\',0.88).then(function(r){RE.coverNew=r;RE.f.cover=\'__new__\';rRef();});})">'+x[1]+'</button>';}).join('')+'</div>'+
+      '<div class="row"><input class="m-in" style="width:56px;text-align:center;font-size:20px;padding:4px" value="'+esc(f.emoji||'')+'" placeholder="🙂" onchange="RE.f.emoji=this.value.trim();rRef()"><input type="color" value="'+esc(f.color||'#ffffff')+'" onchange="RE.f.color=this.value;rRef()" style="width:44px;height:38px;border:none;background:none">'+
+      (f.cover?'<button class="btn btn-g btn-sm" onclick="RE.f.cover=\'\';RE.coverNew=null;rRef()">Remove art</button>':'')+'</div></div></div>';
+    h+='<div class="hint" style="margin-top:4px">Use a logo, a hero shot, your own drawing, or just an emoji + color.</div>';
+    if(_idKind(f.cat)==='shoe')h+='<button class="btn btn-g btn-sm" onclick="_reCap();openShoeBuilder(RE.f.mock,function(m){RE.f.mock=m;shoePNG(m).then(function(p){RE.coverNew=p;RE.f.cover=\'__new__\';rRef();});})">👟 Draw a mockup as cover</button>';
+  }else{
+    h+='<div class="m-lbl">Pictures <span class="r hint">add as many angles as you like</span></div><div class="ref-thumbs">'+
+      f.imgs.map(function(k,i){return'<div class="rt">'+imgHTML(k)+'<button onclick="_reCap();RE.f.imgs.splice('+i+',1);rRef()">✕</button>'+(i?'<button style="left:2px;right:auto" onclick="_reCap();var a=RE.f.imgs;a.unshift(a.splice('+i+',1)[0]);rRef()">★</button>':'')+'</div>';}).join('')+
+      RE.add.map(function(d,i){return'<div class="rt"><img src="'+d+'"><button onclick="_reCap();RE.add.splice('+i+',1);rRef()">✕</button></div>';}).join('')+'</div>';
+    h+='<div class="src-row" style="margin-top:6px">'+[['cam','📷','Camera'],['gal','🖼','Gallery'],['url','🔗','Web URL'],['paste','📋','Paste']].map(function(x){return'<button class="btn btn-s" onclick="_reCap();pickPhoto(\''+x[0]+'\',function(d){RE.add.push(d);rRef();})"><span>'+x[1]+'</span>'+x[2]+'</button>';}).join('')+'</div>';
+    h+='<div class="hint" style="margin-top:4px">Screenshots work great. Tip: in Chrome, long-press any image → Share → Spotted.</div>';
+  }
+  h+='<div class="m-lbl">Type'+(g?' <span class="r hint">optional — shared by everything inside</span>':'')+'</div><div class="chips" style="flex-wrap:wrap">'+(g?'<button class="chip'+(!f.cat?' on':'')+'" onclick="_reCap();RE.f.cat=\'\';rRef()">Mixed</button>':'')+catList().map(function(c){return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_reCap();RE.f.cat=\''+c.id+'\';rRef()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  if(f.cat||effCat(f)){
+    var inh=par?effTraits(par):{};var inhS=traitSummary(inh);
+    h+='<div class="m-lbl">'+(g?'Shared details <span class="r hint">everything inside inherits these</span>':'Details')+'</div>'+(inhS?'<div class="hint" style="margin-bottom:4px">Already inherited from folders: <b>'+esc(inhS)+'</b></div>':'')+traitsHTML('RE',TR_OPEN.RE);}
+  if(!g&&_idKind(effCat(f))==='shoe')h+='<div class="m-lbl">👟 Mockup <span class="r hint">optional</span></div><div onclick="_reCap();openShoeBuilder(RE.f.mock,function(m){RE.f.mock=m;rRef();})" style="cursor:pointer;border:1px dashed var(--paperGrid);border-radius:10px">'+shoeSVG(f.mock||shoeDefault(),false)+'</div>';
+  h+='<div class="m-lbl">👀 Tells <span class="r hint">'+(g?'how to recognise anything in this folder':'how YOU tell it apart')+'</span></div><textarea class="m-in" id="re-notes" placeholder="'+(g?'e.g. Dunk Low: padded collar, toe overlay wraps the front, swoosh ends at heel':'e.g. Panda: white base, black overlays; vs Black Leather: all black, grey stitching')+'">'+esc(f.notes||'')+'</textarea>';
+  if(!g)h+='<input class="m-in" id="re-link" placeholder="Link (optional)" value="'+esc(f.link||'')+'" style="margin-top:6px">';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(2)">Cancel</button><button class="btn btn-p" onclick="refSave()">Save</button></div>';
   var st=$('re-b')?$('re-b').scrollTop:0;openModal(h,2);var b=$('re-b');if(b)b.scrollTop=st;
 }
@@ -2602,7 +2757,10 @@ function refSave(){
   _reCap();var f=RE.f;if(!f.name.trim()){toast('Give it a name');var n=$('re-name');if(n)n.focus();return;}
   f.name=f.name.trim();
   var tasks=RE.add.map(function(d){return resizeData(d,900,'webp',0.86).then(function(x){f.imgs.push(imgSave(x));});});
-  var mp=f.mock?shoePNG(f.mock).then(function(p){if(f.mockImg)fbDeleteImage(f.mockImg);f.mockImg=imgSave(p);}):Promise.resolve();
+  var oldCover=RE.isNew?'':(S.refs[f.id]||{}).cover||'';
+  if(f.cover==='__new__'&&RE.coverNew){f.cover=imgSave(RE.coverNew);}else if(f.cover==='__new__')f.cover=oldCover;
+  if(oldCover&&oldCover!==f.cover)fbDeleteImage(oldCover);
+  var mp=(!f.group&&f.mock)?shoePNG(f.mock).then(function(p){if(f.mockImg)fbDeleteImage(f.mockImg);f.mockImg=imgSave(p);}):Promise.resolve();
   Promise.all(tasks.concat([mp])).then(function(){
     var old=RE.isNew?null:S.refs[f.id];
     if(old)(old.imgs||[]).forEach(function(k){if(f.imgs.indexOf(k)<0&&!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});
@@ -2610,14 +2768,18 @@ function refSave(){
     if(fromFind&&F)rFind();
   });
 }
-function refDelete(){if(!confirm('Delete "'+RE.f.name+'" from your library? (Spotted items stay.)'))return;var f=RE.f;
-  (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);
+function refDelete(){var f=RE.f;
+  if(!confirm(f.group?'Delete folder "'+f.name+'"? Everything inside moves up a level (nothing else is deleted).':'Delete "'+f.name+'" from your library? (Spotted items stay.)'))return;
+  refDeleteById(f.id);RE=null;closeModal(2);if(LF.node===f.id)LF.node=f.parent||'';render();}
+function refDeleteById(id){var f=S.refs[id];if(!f)return;
+  refKids(id).forEach(function(k){var x=clone(k);x.parent=f.parent||'';put('refs',x);});
+  (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);if(f.cover)fbDeleteImage(f.cover);
   vals(S.items).forEach(function(i){if(i.ref===f.id){var x=clone(i);delete x.ref;put('items',x);}});
-  del('refs',f.id);RE=null;closeModal(2);render();}
+  del('refs',id);}
 
 // ── 🃏 study: flashcards from your library ──
 var ST=null;
-function openStudy(){var pool=(LF.cat==='all'?vals(S.refs):refMatches(LF.traits,LF.cat,LF.q).map(function(x){return x.r;})).filter(function(r){return refThumb(r);});
+function openStudy(){var pool=(libFlat()?refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;}):refEntriesUnder(LF.node)).filter(function(r){return!isGroup(r)&&refThumb(r);});
   if(pool.length<2)return toast('Add at least 2 references with pictures');ST={pool:shuffle(pool),i:0,show:false,right:0,seen:0};rStudy();}
 function rStudy(){
   var r=ST.pool[ST.i%ST.pool.length],imgs=(r.imgs||[]).concat(r.mockImg?[r.mockImg]:[]),k=imgs[Math.floor(Math.random()*imgs.length)];
@@ -2631,12 +2793,12 @@ function rStudy(){
 }
 // ── ⚖️ compare side by side ──
 function openCompare(){
-  var rs=Object.keys(LF.sel||{}).map(function(id){return S.refs[id];}).filter(Boolean);if(rs.length<2)return;
-  var fs=traitSchema(rs[0].cat),n=rs.length;
+  var rs=Object.keys(LF.sel||{}).map(function(id){return S.refs[id];}).filter(function(r){return r&&!isGroup(r);});if(rs.length<2)return;
+  var fs=traitSchema(effCat(rs[0])),n=rs.length;
   var col='grid-template-columns:repeat('+n+',minmax(0,1fr))';
   var h='<div class="mo-h"><h3>⚖️ Compare</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   h+='<div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){var k=refThumb(r);return'<div style="text-align:center">'+(k?imgHTML(k,'','style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:8px" onclick="refZoom(this)"'):'')+'<div style="font-size:12px;font-weight:700;margin-top:3px">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
-  fs.forEach(function(f){var vs=rs.map(function(r){return((r.traits||{})[f.id]||[]).join(', ');});if(!vs.some(Boolean))return;var diff=vs.some(function(v){return v!==vs[0];});
+  fs.forEach(function(f){var vs=rs.map(function(r){return(effTraits(r)[f.id]||[]).join(', ');});if(!vs.some(Boolean))return;var diff=vs.some(function(v){return v!==vs[0];});
     h+='<div class="m-lbl">'+esc(f.name)+(diff?' <span class="r" style="color:#d97706">differs</span>':'')+'</div><div style="display:grid;'+col+';gap:6px">'+vs.map(function(v){return'<div style="font-size:12px;'+(diff?'font-weight:700':'color:var(--inkFaint)')+'">'+esc(v||'—')+'</div>';}).join('')+'</div>';});
   h+='<div class="m-lbl">👀 Tells</div><div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){return'<div style="font-size:12px;white-space:pre-wrap">'+esc(r.notes||'—')+'</div>';}).join('')+'</div>';
   h+='</div>';openModal(h,1);
