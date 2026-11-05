@@ -286,7 +286,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.12';
+var APP_VERSION='v1.12.1';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -2685,7 +2685,7 @@ function _entryThumb(r){return(r.imgs&&r.imgs[0])||r.mockImg||'';}
 // folder avatar: custom art → an entry's picture → emoji → auto preview of what's inside
 function libAvatar(r,size){
   size=size||0;var st=size?'width:'+size+'px;height:'+size+'px;flex-shrink:0;':'';
-  var fit=r.coverFit==='contain'?'contain':'cover',bg=r.color||'#fff';
+  var fit=r.coverFit||(r.coverFrom?'contain':'cover'),bg=r.color||'#fff';
   var one=function(inner){return'<div class="lib-av'+(fit==='cover'?' fill':'')+'" style="'+st+'background:'+bg+'">'+inner+'</div>';};
   if(r.cover==='__new__'&&RE&&RE.f===r&&RE.coverNew)return one('<img src="'+RE.coverNew+'">');
   if(isGroup(r)&&r.coverFrom&&S.refs[r.coverFrom]&&_entryThumb(S.refs[r.coverFrom]))return one(imgHTML(_entryThumb(S.refs[r.coverFrom])));
@@ -2811,8 +2811,9 @@ function rRef(){
     h+='<div class="m-lbl">Cover art</div><div class="row" style="align-items:center">'+libAvatar(f,84)+'<div style="flex:1;min-width:0;display:grid;gap:6px">'+
       '<div class="seg">'+[['auto','Preview'],['entry','From inside'],['img','Picture'],['emoji','Emoji']].map(function(o){return'<button class="'+(cm===o[0]?'on':'')+'" onclick="_reCap();coverMode(\''+o[0]+'\')">'+o[1]+'</button>';}).join('')+'</div>'+
       (cm==='img'?'<div class="row">'+[['cam','📷'],['gal','🖼'],['url','🔗'],['paste','📋']].map(function(x){return'<button class="btn btn-s btn-sm" style="flex:1" onclick="_reCap();pickPhoto(\''+x[0]+'\',function(d){resizeData(d,600,\'webp\',0.88).then(function(r){RE.coverNew=r;RE.f.cover=\'__new__\';RE.f.coverFrom=\'\';rRef();});})">'+x[1]+'</button>';}).join('')+'</div>'+
-        '<div class="seg"><button class="'+(f.coverFit!=='contain'?'on':'')+'" onclick="RE.f.coverFit=\'cover\';rRef()">Fill square</button><button class="'+(f.coverFit==='contain'?'on':'')+'" onclick="RE.f.coverFit=\'contain\';rRef()">Fit whole image</button></div>':'')+
+        '':'')+
       (cm==='entry'?'<button class="btn btn-s btn-sm" onclick="_reCap();coverPickEntry()">🧩 '+(f.coverFrom&&S.refs[f.coverFrom]?'Change: '+esc(S.refs[f.coverFrom].name):'Pick an entry inside')+'</button>':'')+
+      ((cm==='img'||cm==='entry')?(function(){var ef=f.coverFit||(cm==='entry'?'contain':'cover');return'<div class="seg"><button class="'+(ef==='cover'?'on':'')+'" onclick="RE.f.coverFit=\'cover\';rRef()">Fill square</button><button class="'+(ef==='contain'?'on':'')+'" onclick="RE.f.coverFit=\'contain\';rRef()">Fit whole image</button></div>';})():'')+
       (cm==='emoji'?'<div class="row"><input class="m-in" style="width:56px;text-align:center;font-size:20px;padding:4px" value="'+esc(f.emoji||'')+'" placeholder="🙂" onchange="RE.f.emoji=this.value.trim();rRef()"><input type="color" value="'+esc(f.color||'#ffffff')+'" onchange="RE.f.color=this.value;rRef()" style="width:44px;height:38px;border:none;background:none"></div>':'')+
       '</div></div>';
     h+='<div class="hint" style="margin-top:4px">'+(cm==='auto'?'Shows up to 4 pictures of what\'s inside this folder.':cm==='entry'?'Uses the main picture of one entry in this folder.':cm==='img'?'A logo, hero shot or your own art. “Fill square” crops to fill; “Fit” shows it all.':'An emoji on a color.')+'</div>';
