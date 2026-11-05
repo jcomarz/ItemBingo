@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -35,6 +35,8 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow-x:hidden;max-width:100%}
+html,body,.app,#mr{overflow-x:clip}
+.chips,.istrip,.ref-car,.crumbs,.ver-row{max-width:100%;min-width:0}
 body{font-family:Quicksand,sans-serif;color:var(--ink);background:var(--paper);overscroll-behavior-y:none;-webkit-tap-highlight-color:transparent;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
 button{font-family:inherit;cursor:pointer;color:inherit}
@@ -278,7 +280,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.10';
+var APP_VERSION='v1.10.2';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -1967,7 +1969,7 @@ function openSettings(sec){
   h+='<div class="sec"><h4>💾 Backup to a real file</h4><div class="hint">'+nI+' items · '+nS+' sightings · '+Object.keys(S.cards).length+' cards · '+Object.keys(S.places).length+' places. Saves to Downloads — doesn\'t rely on browser storage.</div>'+
     '<div class="row wrap" style="margin-top:8px"><button class="btn btn-p" onclick="exportBackup(true)">⬇ Full backup (.zip with photos)</button><button class="btn btn-s" onclick="exportBackup(false)">⬇ Data only (.json)</button><button class="btn btn-s" onclick="importFile()">📂 Import…</button></div>'+
     '<div class="hint" style="margin-top:6px">Photos are real image files inside the zip. Very big libraries split into parts (~60 MB each) — when importing, select all the parts together. Import also accepts older .json backups, Decade Journal settings, or a Decade Journal backup (people + places).</div></div>';
-  h+='<div class="hint" style="text-align:center;margin:14px 0 4px">Spotted '+APP_VERSION+' · companion to Decade Journal</div>';
+  h+='<div class="hint" style="text-align:center;margin:14px 0 4px">Spotted '+APP_VERSION+' · companion to Decade Journal<br><span style="font-size:10px">screen '+screen.width+' · page '+window.innerWidth+' · content '+document.documentElement.scrollWidth+(window.visualViewport?' · zoom '+visualViewport.scale.toFixed(2):'')+' · '+widestThing()+'</span></div>';
   h+='</div>';
   openModal(h,1);storageEstimate();
   if(sec){var el=$('sec-'+sec);if(el)el.scrollIntoView({block:'start'});}
@@ -2032,6 +2034,8 @@ function storageEstimate(){
     var mb=function(n){return(n/1048576).toFixed(n>1048576*10?0:1)+' MB';};
     var el=$('store-est');if(el)el.textContent=used.length+' photos ≈ '+mb(tot)+(orig?' (originals: '+mb(orig)+')':'')+' · Firebase free plan: 1 GB shared with Decade Journal';});
 }
+
+function widestThing(){try{var vw=window.innerWidth,best=null,bw=vw;document.querySelectorAll('#app *').forEach(function(e){var r=e.getBoundingClientRect();if(r.right>bw+2&&!e.closest('.chips,.istrip,.ref-car,.crumbs,.ver-row')){bw=r.right;best=e;}});return best?('widest: '+best.tagName.toLowerCase()+'.'+String(best.className).split(' ')[0]+' '+Math.round(bw)+'px'):'fits';}catch(e){return'';}}
 
 // ════════════════════════════════════════════════════════════════
 //  IMPORT FROM DECADE JOURNAL (same Firebase room: rooms/<room>/data/items)
@@ -2934,6 +2938,20 @@ function showFatal(e){
 }
 // a crash later (while tapping around) shouldn't leave a blank screen either
 window.addEventListener('error',function(ev){if(!$('app')||$('app').innerHTML.trim())return;showFatal(ev.error||ev.message);});
+
+// Chrome's "Desktop site" mode ignores the phone layout and shrinks everything. Detect it and say how to turn it off.
+function checkDesktopMode(){
+  try{
+    var sw=Math.min(screen.width,screen.height),touch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+    if(!touch||sw>820||window.innerWidth<sw*1.35)return;
+    if(sessionStorage.getItem('ib_dm_hide'))return;
+    var d=document.createElement('div');
+    d.style.cssText='position:fixed;left:0;right:0;top:0;z-index:4000;background:#f59e0b;color:#111;padding:'+Math.round(window.innerWidth/sw*10)+'px;font:600 '+Math.round(window.innerWidth/sw*14)+'px Quicksand,sans-serif;text-align:center';
+    d.innerHTML='Everything tiny? Chrome\'s <b>Desktop site</b> is on for this page. Tap Chrome\'s ⋮ menu → untick <b>Desktop site</b>. <button style="font:inherit;margin-left:8px;padding:2px 10px;border-radius:8px;border:1px solid #111;background:#fff" onclick="sessionStorage.setItem(\'ib_dm_hide\',1);this.parentNode.remove()">OK</button>';
+    document.body.appendChild(d);
+  }catch(e){}
+}
+setTimeout(checkDesktopMode,800);
 </script>
 </body>
 </html>
