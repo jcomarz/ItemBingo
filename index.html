@@ -280,7 +280,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.10.2';
+var APP_VERSION='v1.11';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
 
 // ── utils ──
@@ -1136,7 +1136,7 @@ function selTap(id){if(SEL[id])delete SEL[id];else SEL[id]=1;render();}
 function selIds(){return Object.keys(SEL||{}).filter(function(id){return S.items[id];});}
 function selBarHTML(){var n=selIds().length;
   return'<div class="selbar"><b>'+n+' selected</b><button class="btn btn-g btn-sm" onclick="filteredItems().forEach(function(i){SEL[i.id]=1;});render()">All</button><div class="spacer"></div>'+
-  '<button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selFolder()">📁 Folder</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selToLib()">📚</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selCat()">🗂 Type</button><button class="btn btn-d btn-sm" '+(n?'':'disabled')+' onclick="selDelete()">🗑</button></div>';}
+  '<button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selFolder()">📁 Folder</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selToLib()">📚</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selMystery()">❓</button><button class="btn btn-s btn-sm" '+(n?'':'disabled')+' onclick="selCat()">🗂 Type</button><button class="btn btn-d btn-sm" '+(n?'':'disabled')+' onclick="selDelete()">🗑</button></div>';}
 function selFolder(){
   var ids=selIds();
   var h='<div class="mo-h"><h3>📁 Folders for '+ids.length+' item'+(ids.length>1?'s':'')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
@@ -1187,7 +1187,8 @@ function rItem(){
   var h='<div class="mo-h"><h3>'+(isNew?'📷 New item':esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
   if(!isNew&&f.mystery)h+='<div class="sec" style="margin:0 0 10px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 8px">'+esc(f.desc||'')+'</div><button class="btn btn-p btn-block" onclick="var id=IM.id;closeModal(1);openFind({itemId:id})">🔎 Find it in my library</button></div>';
   h+=studioHTML();
-  h+='<div class="m-lbl">Name</div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
+  h+='<div class="m-lbl">Name <span class="r"><button class="chip'+(f.mystery?' on':'')+'" style="'+(f.mystery?'background:#7c3aed;border-color:#7c3aed;color:#fff':'')+'" onclick="_imCap();imToggleMystery()">❓ '+(f.mystery?'Needs ID':'Not sure what it is?')+'</button></span></div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
+  if(isNew&&f.mystery)h+='<div class="hint" style="margin-top:4px">Saved under <b>❓ To identify</b> — name it with whatever you know, describe it in Notes, and pin it down later with 🔎.</div>';
   h+='<div class="m-lbl">Category</div><div class="chips" style="flex-wrap:wrap">'+catList().map(function(c){
     return'<button class="chip'+(f.cat===c.id?' on':'')+'" onclick="_imCap();IM.f.cat=\''+c.id+'\';rItem()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+
     '<button class="chip" onclick="_imCap();quickNewCat(function(id){IM.f.cat=id;rItem();})">＋ New</button></div>';
@@ -1571,6 +1572,9 @@ function refPick(cb){_rpCb=cb;var rs=vals(S.refs).sort(function(a,b){return a.na
   openModal(h,2);}
 
 function selToLib(){var ids=selIds();openTreePicker({title:'Add '+ids.length+' to library in…',onPick:function(d){itemsToLib(ids,d);SEL=null;render();}});}
+
+function imToggleMystery(){var f=IM.f;f.mystery=!f.mystery;if(f.mystery&&!f.desc)f.desc=f.notes||'';toast(f.mystery?'❓ Will show under To identify':'✓ Marked as identified',1800);rItem();}
+function selMystery(){var ids=selIds(),on=!ids.every(function(id){return S.items[id].mystery;});ids.forEach(function(id){var x=clone(S.items[id]);x.mystery=on;if(on&&!x.desc)x.desc=x.notes||'';put('items',x);});SEL=null;render();toast(on?'❓ '+ids.length+' moved to To identify':'✓ '+ids.length+' marked identified');}
 
 // ════════════════════════════════════════════════════════════════
 //  BINGO
