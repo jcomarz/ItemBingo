@@ -139,6 +139,17 @@ textarea.m-in{min-height:64px;resize:vertical}
 .ref-thumbs .rt{position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;background:#fff;border:1px solid var(--paperGrid)}
 .ref-thumbs .rt img{width:100%;height:100%;object-fit:contain}
 .ref-thumbs .rt button{position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:0}
+.rt-add{width:72px;height:72px;border-radius:8px;border:1px dashed var(--paperGrid);background:var(--paper);font-size:16px}
+.sess-bar{position:sticky;top:57px;z-index:49;display:flex;align-items:center;gap:8px;padding:8px 14px;background:#fef3c7;color:#111;font-size:12px;border-bottom:1px solid #f59e0b;cursor:pointer}
+.sess-bar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-bar .btn{background:#111;color:#fff}
+.tray-badge{display:flex;align-items:center;gap:2px;border:1px solid #f59e0b;background:#fef3c7;color:#111;border-radius:14px;padding:3px 8px;font-size:13px}
+.tray-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--paperGrid);border-radius:12px;margin-bottom:6px}
+.tray-row.on{border-color:var(--accent1);box-shadow:0 0 0 1px var(--accent1) inset}
+.tray-chk{width:26px;height:26px;border-radius:50%;border:2px solid var(--accent1);background:var(--paper);font-weight:800;flex-shrink:0}
+.tray-row.on .tray-chk{background:var(--accent1);color:var(--paper)}
+.tray-img{width:72px;height:72px;flex-shrink:0;border-radius:8px;overflow:hidden;background:#fff;border:1px solid var(--paperGrid)}
+.tray-img img{width:100%;height:100%;object-fit:contain}
 .sb-pal{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;margin:8px 0}
 .sb-pal button,.sb-pal label{aspect-ratio:1/1;border-radius:50%;border:2px solid #8886;display:block;position:relative;overflow:hidden}
 /* library tree */
@@ -286,8 +297,8 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v1.12.1';
-var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs'];
+var APP_VERSION='v2.3';
+var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
 function gid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
@@ -307,10 +318,10 @@ function clone(o){return JSON.parse(JSON.stringify(o));}
 var LS_KEY='ib_local';
 var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all',sort:'recent',search:'',calY:new Date().getFullYear(),calM:new Date().getMonth(),
   geminiKey:'',openaiKey:'',claudeKey:'',claudeModel:'claude-sonnet-5-5',geminiTextModel:'gemini-flash-latest',idProvider:'auto',geminiModel:'gemini-3.1-flash-image',openaiModel:'gpt-image-2.5-sunburst',aiProvider:'gemini',
-  bgModel:'isnet_fp16',keepOrig:false,autoProcess:'none',syncKeys:false,activeCard:''};
+  bgModel:'isnet_fp16',keepOrig:false,autoTidy:true,autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
 function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
-var SETTING_KEYS=['keepOrig','serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+var SETTING_KEYS=['autoTidy','keepOrig','serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
 // If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
 function restoreLocalSettings(cb){
   if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
@@ -338,7 +349,7 @@ var DEFAULT_PROMPT='Turn this photo into a clean e-commerce product photo of the
 '- Clothing (shirts, tees, hoodies, jackets, sweaters, pants, jeans, shorts, dresses): show it laid perfectly flat, front-facing, neatly smoothed out in its natural garment shape, sleeves/legs straight and symmetrical, like a flat-lay on an online store product page.\n'+
 '- Shoes: clean side profile of a single shoe (or the pair if both are visible). Bags, toys, gadgets and other objects: straight-on 3/4 product angle.\n'+
 '- Square 1:1 framing with generous white margin around the item. No text, watermark or props.';
-var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{},stamps:{},folders:{},refs:{}};
+var S={people:{},categories:{},items:{},sightings:{},places:{},cards:{},meta:{},stamps:{},folders:{},refs:{},tray:{}};
 var ST_KEY='ib_state';
 function ld(){
   try{var d=JSON.parse(localStorage.getItem(ST_KEY)||'null');if(d)COLLS.forEach(function(c){if(d[c])S[c]=d[c];});S._ts=d&&d._ts||0;}catch(e){console.warn('ld',e);}
@@ -506,7 +517,7 @@ function fbOnValue(snap){
   });
   _saveKnown();
   FB.firstPull=true;FB.lastOk=now();
-  if(changed){S._ts=now();_svNow();scheduleRender();if(typeof watchRemoteBingos==='function')watchRemoteBingos();}
+  if(changed){if(typeof migrateLibrary==='function'&&vals(S.refs).some(function(r){return!r.group;}))migrateLibrary();S._ts=now();_svNow();scheduleRender();if(typeof watchRemoteBingos==='function')watchRemoteBingos();}
   if(Object.keys(DIRTY).length)fbScheduleWrite();
   fbPumpImages();
   syncBadge();
@@ -607,7 +618,7 @@ function exportBackup(withImages){
     next(0);
   }).catch(function(e){alert(e.message);});
 }
-function usedImageKeys(){var u={};vals(S.items).forEach(function(it){if(it.img)u[it.img]=1;if(it.orig)u[it.orig]=1;});vals(S.sightings).forEach(function(s){if(s.photo)u[s.photo]=1;});vals(S.refs||{}).forEach(function(r){(r.imgs||[]).forEach(function(k){u[k]=1;});if(r.mockImg)u[r.mockImg]=1;if(r.cover)u[r.cover]=1;});return Object.keys(u);}
+function usedImageKeys(){var u={};vals(S.items).forEach(function(it){if(it.img)u[it.img]=1;if(it.orig)u[it.orig]=1;if(it.mockImg)u[it.mockImg]=1;(it.imgs||[]).forEach(function(k){u[k]=1;});});vals(S.sightings).forEach(function(s){if(s.photo)u[s.photo]=1;});vals(S.refs||{}).forEach(function(r){(r.imgs||[]).forEach(function(k){u[k]=1;});if(r.mockImg)u[r.mockImg]=1;if(r.cover)u[r.cover]=1;});vals(S.tray||{}).forEach(function(t){var d=t.draft||t;[d.img,d.orig,d.mockImg].concat(d.imgs||[]).forEach(function(k){if(k)u[k]=1;});});return Object.keys(u);}
 function downloadBlob(blob,fn,big){
   // small files: data: URL (most reliable on Android); big zips: object URL (data: URLs that size choke the browser)
   if(!big&&/Android/i.test(navigator.userAgent)){var r=new FileReader();r.onloadend=function(){var a=document.createElement('a');a.href=r.result;a.download=fn;document.body.appendChild(a);a.click();a.remove();};r.readAsDataURL(blob);}
@@ -1004,7 +1015,7 @@ function teDone(){var d=TE.cv.toDataURL('image/png'),cb=TE.onDone;TE=null;closeM
 function pickPhoto(kind,cb){
   if(kind==='cam'||kind==='gal'){
     var inp=$(kind==='cam'?'file-cam':'file-gal');inp.value='';
-    inp.onchange=function(){var f=inp.files[0];if(f)fileToData(f).then(cb).catch(function(e){alert(e.message);});};
+    inp.onchange=function(){var f=inp.files[0];if(f)readPhotoFile(f).then(function(r){cb(r.data,r.meta);}).catch(function(e){alert(e.message);});};
     inp.click();
   }else if(kind==='url'){
     var u=prompt('Paste an image URL (long-press an image → Copy image address):');
@@ -1019,21 +1030,90 @@ function pickPhoto(kind,cb){
   }
 }
 // Images shared into the app via Android share sheet (manifest share_target → sw.js stashes in Cache)
+// Pictures shared into Spotted (Google Lens, Google Photos, Chrome…) go to the 📥 Tray.
 function checkSharedImage(){
-  if(location.search.indexOf('shared=1')<0||!('caches' in window))return;
-  history.replaceState(null,'',location.pathname);
-  caches.open('ib-share').then(function(c){
-    return c.match('shared-image').then(function(r){
-      if(r)return r.blob().then(function(b){c.delete('shared-image');return blobToDataURL(b);}).then(function(d){return resizeData(d,1600,'jpeg',0.9);}).then(function(d){openItemModal(null,{photo:d});});
-      return c.match('shared-url').then(function(r2){
-        if(!r2)return;
-        return r2.text().then(function(t){c.delete('shared-url');var m=String(t).match(/https?:\/\/\S+/);if(!m)return;
-          toast('Loading shared image…');
-          urlToData(m[0]).then(function(d){openItemModal(null,{photo:d});}).catch(function(){openItemModal(null,{});toast('That link isn\'t a direct image — long-press the picture itself → Share',5000);});});
-      });
+  if(!('caches' in window))return;
+  var fromShare=location.search.indexOf('shared=1')>=0;
+  if(fromShare)history.replaceState(null,'',location.pathname);
+  caches.open('ib-share').then(function(c){return c.keys().then(function(reqs){
+    var keys=reqs.map(function(r){return new URL(r.url).pathname.split('/').pop();});
+    var metas=keys.filter(function(k){return k.indexOf('meta-')===0;}),imgs=keys.filter(function(k){return k.indexOf('img-')===0;}).sort();
+    // legacy single-file keys from v1.x service worker
+    if(keys.indexOf('shared-image')>=0)imgs.push('shared-image');
+    if(!imgs.length&&!metas.length&&keys.indexOf('shared-url')<0)return;
+    var metaBy={};
+    return Promise.all(metas.map(function(k){return c.match(k).then(function(r){return r.json();}).then(function(j){metaBy[k.slice(5)]=j;c.delete(k);}).catch(function(){c.delete(k);});})).then(function(){
+      var added=0,jobs=imgs.map(function(k){return c.match(k).then(function(r){if(!r)return;var stamp=(k.split('-')[1]||'');var m=metaBy[stamp]||{};
+        return r.blob().then(function(bl){c.delete(k);var f=new File([bl],'shared.jpg',{type:bl.type||'image/jpeg'});return readPhotoFile(f);}).then(function(res){
+          added++;return trayAdd(res.data,{name:_shareName(m),link:_shareLink(m),date:res.meta.date,lat:res.meta.lat,lng:res.meta.lng,src:'share'});});});});
+      // a shared link with no picture (e.g. a product page) → try to fetch it as an image
+      Object.keys(metaBy).forEach(function(st){var m=metaBy[st];if(m.files)return;var link=_shareLink(m);if(!link)return;
+        jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){toast('That link isn\'t a picture — in Lens, long-press the image → Share',5000);}));});
+      return Promise.all(jobs).then(function(){if(added){toast('📥 '+added+' added to your tray',2500);if(fromShare)openTray();}});
     });
+  });});
+}
+function _shareLink(m){var t=(m.url||'')+' '+(m.text||'');var x=/https?:\/\/\S+/.exec(t);return x?x[0]:'';}
+function _shareName(m){var t=String(m.title||m.text||'').replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();t=t.split(/ [|–—-] /)[0].trim();return t.length>2&&t.length<90?t:'';}
+
+// ════════════ ✨ TIDY: true-white background + crop dead space to a uniform margin ════════════
+// Works on product shots (plain light background) and cut-outs (transparent background).
+// Photos with busy backgrounds are left untouched.
+var TIDY_PAD=0.06;
+function tidyImage(src){
+  return loadImage(src).then(function(img){
+    var s=Math.min(1,1800/Math.max(img.naturalWidth,img.naturalHeight));
+    var W=Math.max(1,Math.round(img.naturalWidth*s)),H=Math.max(1,Math.round(img.naturalHeight*s));
+    var c=document.createElement('canvas');c.width=W;c.height=H;var x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,W,H);
+    var id=x.getImageData(0,0,W,H),d=id.data,N=W*H;
+    // border sample
+    var ring=[];for(var i=0;i<W;i++)ring.push(i,(H-1)*W+i);for(var j=1;j<H-1;j++)ring.push(j*W,j*W+W-1);
+    var clear=0;ring.forEach(function(p){if(d[p*4+3]<30)clear++;});
+    var alphaMode=clear>ring.length*0.5;
+    var ref=[255,255,255];
+    if(!alphaMode){
+      var rs=[],gs=[],bs=[];ring.forEach(function(p){rs.push(d[p*4]);gs.push(d[p*4+1]);bs.push(d[p*4+2]);});
+      var med=function(a){a.sort(function(m,n){return m-n;});return a[a.length>>1];};ref=[med(rs),med(gs),med(bs)];
+      var luma=ref[0]*0.3+ref[1]*0.59+ref[2]*0.11;
+      var near=0;ring.forEach(function(p){if(_cd(d,p*4,ref)<26)near++;});
+      if(luma<160||near<ring.length*0.55)return{data:src,changed:false,why:'busy background'};
+    }
+    var tol=alphaMode?0:Math.max(22,Math.min(40,(255-Math.min(ref[0],ref[1],ref[2]))*0.6+18));
+    var bg=new Uint8Array(N),q=new Int32Array(N),qh=0,qt=0;
+    var isBg=function(p){return alphaMode?d[p*4+3]<25:(d[p*4+3]<25||_cd(d,p*4,ref)<tol);};
+    ring.forEach(function(p){if(!bg[p]&&isBg(p)){bg[p]=1;q[qt++]=p;}});
+    while(qh<qt){var p=q[qh++],px=p%W,py=(p/W)|0;
+      if(px>0&&!bg[p-1]&&isBg(p-1)){bg[p-1]=1;q[qt++]=p-1;}
+      if(px<W-1&&!bg[p+1]&&isBg(p+1)){bg[p+1]=1;q[qt++]=p+1;}
+      if(py>0&&!bg[p-W]&&isBg(p-W)){bg[p-W]=1;q[qt++]=p-W;}
+      if(py<H-1&&!bg[p+W]&&isBg(p+W)){bg[p+W]=1;q[qt++]=p+W;}}
+    // object bounds (ignore tiny specks: need ≥3 foreground pixels in the row/col)
+    var minx=W,miny=H,maxx=-1,maxy=-1,fg=0;
+    var colC=new Int32Array(W),rowC=new Int32Array(H);
+    for(var y=0;y<H;y++)for(var xx=0;xx<W;xx++){var k=y*W+xx;if(!bg[k]){colC[xx]++;rowC[y]++;fg++;}}
+    for(var a=0;a<W;a++)if(colC[a]>=3){minx=Math.min(minx,a);maxx=a;}
+    for(var b=0;b<H;b++)if(rowC[b]>=3){miny=Math.min(miny,b);maxy=b;}
+    if(maxx<0||fg<Math.max(150,N*0.0008))return{data:src,changed:false,why:'no object found'};
+    // whiten background, soften the grey halo right at the edge
+    var changedPx=0;
+    if(!alphaMode){for(var m=0;m<N;m++){var o=m*4;
+      if(bg[m]){if(d[o]!==255||d[o+1]!==255||d[o+2]!==255){changedPx++;}d[o]=d[o+1]=d[o+2]=255;d[o+3]=255;}
+      else{var mx=m%W,my=(m/W)|0,edge=(mx>0&&bg[m-1])||(mx<W-1&&bg[m+1])||(my>0&&bg[m-W])||(my<H-1&&bg[m+W]);
+        if(edge&&_cd(d,o,ref)<tol*1.8){d[o]=(d[o]+255)>>1;d[o+1]=(d[o+1]+255)>>1;d[o+2]=(d[o+2]+255)>>1;}}}
+      x.putImageData(id,0,0);}
+    var bw=maxx-minx+1,bh=maxy-miny+1,pad=Math.round(Math.max(bw,bh)*TIDY_PAD);
+    var cropped=(bw*bh)<N*0.9;
+    var ow=bw+pad*2,oh=bh+pad*2,sc=Math.min(1,900/Math.max(ow,oh));
+    var o2=document.createElement('canvas');o2.width=Math.round(ow*sc);o2.height=Math.round(oh*sc);var ox=o2.getContext('2d');
+    if(!alphaMode){ox.fillStyle='#fff';ox.fillRect(0,0,o2.width,o2.height);}
+    ox.drawImage(c,minx,miny,bw,bh,Math.round(pad*sc),Math.round(pad*sc),Math.round(bw*sc),Math.round(bh*sc));
+    var out=o2.toDataURL('image/webp',0.9);if(out.indexOf('data:image/webp')!==0)out=o2.toDataURL(alphaMode?'image/png':'image/jpeg',0.9);
+    return{data:out,changed:cropped||changedPx>N*0.02,why:''};
   });
 }
+function _cd(d,o,r){var a=d[o]-r[0],b=d[o+1]-r[1],c=d[o+2]-r[2];return Math.sqrt(a*a*0.3+b*b*0.59+c*c*0.11)*1.6;}
+// apply automatically to new pictures (setting: ⚙️ → Photo storage)
+function tidyMaybe(d){if(L.autoTidy===false)return Promise.resolve(d);return tidyImage(d).then(function(r){return r.data;}).catch(function(){return d;});}
 
 // ════════════════════════════════════════════════════════════════
 //  UI — modal stack, shell, tabs
@@ -1062,11 +1142,12 @@ function render(){
   var tabs=[['items','🏷️','Items'],['lib','📚','Library'],['cal','📅','Calendar'],['bingo','🎱','Bingo']];
   var h='<div class="topbar"><div class="brand">Spotted<small>'+APP_VERSION+'</small></div><div class="spacer"></div>'+
     '<button class="me-pill" onclick="cycleMe()" title="Who is spotting on this phone">'+pdot(me.id)+esc(me.name)+'</button>'+
-    '<span class="sync-dot" id="sync-dot" onclick="syncTap()"></span>'+
+    trayBadgeHTML()+'<span class="sync-dot" id="sync-dot" onclick="syncTap()"></span>'+
     '<button class="icon-btn" title="Light / dark" onclick="toggleTheme()">◐</button>'+
     '<button class="icon-btn" onclick="openSettings()">⚙️</button></div>';
   var body;try{body=(L.tab==='cal'?viewCal():L.tab==='bingo'?viewBingo():L.tab==='lib'?viewLibrary():viewItems());}
   catch(e){console.error(e);body='<div class="empty"><div class="big">⚠️</div>This tab hit an error:<br><code style="font-size:11px">'+esc(e.message)+'</code><br><br><button class="btn btn-p" onclick="L.tab=\'items\';L.libNode=\'\';L.activeCard=\'\';svL();location.reload()">Go to Items</button></div>';}
+  h+=sessionBannerHTML();
   h+='<div class="content">'+body+'</div>';
   h+='<div class="tabbar">'+tabs.map(function(t){return'<button class="'+(L.tab===t[0]?'on':'')+'" onclick="setTab(\''+t[0]+'\')"><span class="ti">'+t[1]+'</span>'+t[2]+'</button>';}).join('')+'</div>';
   if(!SEL)h+='<button class="fab fab2" onclick="openFind()" title="Find something you couldn\'t photograph">🔎</button><button class="fab" onclick="quickSpot()">📷 Spot</button>';
@@ -1082,9 +1163,11 @@ function viewItems(){
   var idx=sightIndex().by;
   var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search items…" value="'+esc(L.search)+'" oninput="L.search=this.value;svL();debounce(\'srch\',renderItemsGrid,200)" style="flex:1">'+
     '<select class="m-in" style="width:auto;padding:9px 6px;font-size:13px" onchange="L.sort=this.value;svL();render()">'+
-    [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
+    [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['spotted','Spotted only'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
     '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button>'+
-    '<button class="icon-btn" title="Select several" onclick="selToggle()">'+(SEL?'✖️':'☑️')+'</button></div>';
+    '<button class="icon-btn" title="Select several" onclick="selToggle()">'+(SEL?'✖️':'☑️')+'</button>'+
+    '<button class="icon-btn" title="Tray — back-log a batch" onclick="openTray()">📥</button>'+
+    '<button class="icon-btn" title="Logging session" onclick="openSession()">📌</button></div>';
   var ff=L.folderFilter||'all';if(ff!=='all'&&ff!=='none'&&ff!=='mystery'&&!S.folders[ff])ff=L.folderFilter='all';
   var nMys=vals(S.items).filter(function(i){return i.mystery;}).length;
   h+='<div class="chips"><button class="chip'+(ff==='all'?' on':'')+'" onclick="L.folderFilter=\'all\';svL();render()">📁 All folders</button>'+
@@ -1109,6 +1192,7 @@ function filteredItems(){
     if(q&&(it.name||'').toLowerCase().indexOf(q)<0&&(it.notes||'').toLowerCase().indexOf(q)<0)return false;
     if(L.personFilter!=='all'&&!(idx[it.id]||[]).some(function(s){return(s.by||[]).indexOf(L.personFilter)>=0;}))return false;
     if(L.sort==='never'&&(idx[it.id]||[]).length)return false;
+    if(L.sort==='spotted'&&!(idx[it.id]||[]).length)return false;
     return true;
   });
   var last=function(it){var s=idx[it.id];return s&&s.length?s[0].date:'';};
@@ -1127,7 +1211,7 @@ function itemsGridHTML(){
     var ss=idx[it.id]||[],c=cat(it.cat);
     var who={};ss.forEach(function(s){(s.by||[]).forEach(function(p){who[p]=1;});});
     var sel=SEL&&SEL[it.id];
-    return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(SEL?'selTap(\''+it.id+'\')':'openItemModal(\''+it.id+'\')')+'">'+(SEL?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
+    return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+(SEL?'selTap(\''+it.id+'\')':'openItemView(\''+it.id+'\')')+'">'+(SEL?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+
       (it.mystery?'<div class="ribbon" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)">❓ ID me</div>':'<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>')+
       '<div class="inv-imgw">'+(it.img?imgHTML(it.img,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+(c?c.icon:'📦')+'</div>')+'</div>'+
       '<div class="inv-info"><div class="inv-name">'+esc(it.name||'Untitled')+'</div><div class="inv-meta">'+(c?c.icon+' ':'')+(ss.length?fmtDate(ss[0].date):'')+
@@ -1166,18 +1250,27 @@ var IM=null;
 // opts: {photo, cat, name, ctx:{card,cell}}
 function openItemModal(id,opts){
   opts=opts||{};
+  if(opts.trayId&&S.tray[opts.trayId]){var tdr=trayDraft(S.tray[opts.trayId]);
+    IM={id:null,isNew:true,draft:true,trayId:opts.trayId,f:clone(tdr),vers:[],cur:0,ctx:null,first:{date:tod(),by:[L.me],place:'',note:''},logFirst:false};
+    IM.f.imgs=IM.f.imgs||[];IM.f.folders=IM.f.folders||[];IM.f.traits=IM.f.traits||{};
+    if(tdr.img)IM.vers.push({k:tdr.img,label:'Current'});
+    IM.fromView=false;IM.addImgs=[];rItem();return;}
   if(id&&S.items[id]){
     var it=S.items[id];
     IM={id:id,isNew:false,f:clone(it),vers:[],cur:0,ctx:opts.ctx||null};
     if(it.img)IM.vers.push({k:it.img,label:'Current'});
     if(it.orig&&it.orig!==it.img)IM.vers.push({k:it.orig,label:'Original'});
   }else{
-    var defCat=opts.cat||(L.catFilter!=='all'?L.catFilter:'');
-    IM={id:null,isNew:true,f:{id:'it_'+gid(),name:opts.name||'',cat:defCat,notes:'',folders:(L.folderFilter&&S.folders[L.folderFilter])?[L.folderFilter]:[]},vers:[],cur:0,ctx:opts.ctx||null,
-      first:{date:tod(),by:[L.me],place:L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:'',note:''},logFirst:true};
+    var sd=sessDefaults(),pp=opts.parent!=null?opts.parent:(sd.parent||'');
+    var defCat=opts.cat||(pp&&S.refs[pp]?effCat(S.refs[pp]):'')||(L.catFilter!=='all'?L.catFilter:'');
+    var fold=sd.folders.slice();if(L.folderFilter&&S.folders[L.folderFilter]&&fold.indexOf(L.folderFilter)<0)fold.push(L.folderFilter);
+    IM={id:null,isNew:true,f:{id:'it_'+gid(),name:opts.name||'',cat:defCat,notes:opts.notes||'',folders:fold,parent:pp,traits:opts.traits||{},imgs:[],mock:opts.mock||null},vers:[],cur:0,ctx:opts.ctx||null,
+      first:{date:opts.date||sd.date,by:sd.by,place:opts.place!=null?opts.place:sd.place,note:''},logFirst:opts.logFirst!==false&&!opts.draft,batch:!!opts.batch,draft:!!opts.draft};
   }
+  IM.fromView=!!opts.fromView;IM.addImgs=[];
   rItem();
   if(opts.photo)studioAdd(opts.photo,'Photo',true);
+  if(opts.meta)applyPhotoMeta(opts.meta);
 }
 function imFolder(id){var a=IM.f.folders=IM.f.folders||[];var i=a.indexOf(id);if(i>=0)a.splice(i,1);else a.push(id);rItem();}
 function _imCap(){
@@ -1190,7 +1283,7 @@ function _imCap(){
 function rItem(){
   if(!IM)return;_imCap();
   var f=IM.f,isNew=IM.isNew;
-  var h='<div class="mo-h"><h3>'+(isNew?'📷 New item':esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  var h='<div class="mo-h"><h3>'+(isNew?(IM.batch&&BQ?'🖼 Photo '+(BQ.i+1)+' of '+BQ.files.length:'📷 New item'):esc(f.name||'Item'))+'</h3>'+(isNew?'':'<button class="icon-btn" title="Delete item" onclick="deleteItem()">🗑️</button>')+'<button class="icon-btn" onclick="'+(IM.batch?'if(confirm(\'Stop the batch?\')){BQ=null;closeModal(1);}':'imClose()')+'">✕</button></div><div class="mo-b">';
   if(!isNew&&f.mystery)h+='<div class="sec" style="margin:0 0 10px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 8px">'+esc(f.desc||'')+'</div><button class="btn btn-p btn-block" onclick="var id=IM.id;closeModal(1);openFind({itemId:id})">🔎 Find it in my library</button></div>';
   h+=studioHTML();
   h+='<div class="m-lbl">Name <span class="r"><button class="chip'+(f.mystery?' on':'')+'" style="'+(f.mystery?'background:#7c3aed;border-color:#7c3aed;color:#fff':'')+'" onclick="_imCap();imToggleMystery()">❓ '+(f.mystery?'Needs ID':'Not sure what it is?')+'</button></span></div><input class="m-in" id="im-name" placeholder="What is it? e.g. Jordan 4 Bred" value="'+esc(f.name)+'">';
@@ -1201,7 +1294,12 @@ function rItem(){
   h+='<div class="m-lbl">Folders <span class="r hint">any number</span></div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(fo){var on=(f.folders||[]).indexOf(fo.id)>=0;
     return'<button class="chip'+(on?' on':'')+'" onclick="_imCap();imFolder(\''+fo.id+'\')">'+esc(fo.icon||'📁')+' '+esc(fo.name)+'</button>';}).join('')+
     '<button class="chip" onclick="_imCap();newFolder(function(id){imFolder(id);})">＋ Folder</button></div>';
-  if(isNew){
+  var lp=f.parent&&S.refs[f.parent];
+  h+='<div class="m-lbl">📚 Library folder</div><button class="btn btn-s btn-block" style="justify-content:flex-start;overflow:hidden" onclick="_imCap();openTreePicker({title:\'File it in…\',start:IM.f.parent,onPick:function(d){IM.f.parent=d;if(!IM.f.cat&&d&&S.refs[d])IM.f.cat=effCat(S.refs[d]);rItem();}})">📂 '+(lp?esc((refPath(lp)?refPath(lp)+' › ':'')+lp.name):'Not filed — tap to pick (e.g. Nike › Dunk Low)')+'</button>';
+  if(isNew&&!IM.logFirst)h+='';
+  if(isNew&&IM.draft){
+    h+='<div class="sec" style="border-color:#f59e0b;background:#fef3c722"><b>📥 Draft in your tray</b><div class="hint" style="margin-top:2px">Not in your inventory yet. Date, place and who spotted it are set for the whole batch when you deploy from the tray. Saves itself as you go and syncs — finish it on any device.</div><div class="hint" id="im-autosave" style="margin-top:4px;color:var(--acc,#0a7)"></div></div>';
+  }else if(isNew){
     var fs=IM.first;
     h+='<div class="sec"><label class="toggle" style="padding:0"><input type="checkbox" '+(IM.logFirst?'checked':'')+' onchange="_imCap();IM.logFirst=this.checked;rItem()"><b>Log a sighting now</b></label>';
     if(IM.logFirst){
@@ -1209,6 +1307,7 @@ function rItem(){
       h+='<div class="m-lbl">Spotted by</div>'+whoChips(fs.by,'IM.first.by','rItem');
       h+='<div class="m-lbl">Where</div>'+placeChip(fs.place,'_imPickFirstPlace()','_imCap();IM.first.place=\'\';rItem()');
       h+='<input class="m-in" id="im-fnote" placeholder="Note (optional)" value="'+esc(fs.note)+'" style="margin-top:8px">';
+      h+=(sess()?'<div class="hint" style="margin-top:6px">📌 Pre-filled from your logging session.</div>':'<button class="btn btn-g btn-sm" style="margin-top:6px" onclick="_imCap();openSession({date:IM.first.date,place:IM.first.place,by:IM.first.by,folders:IM.f.folders,parent:IM.f.parent})">📌 Use these for the next items too…</button>');
     }
     h+='</div>';
   }else{
@@ -1217,11 +1316,19 @@ function rItem(){
     h+='<div class="row" style="gap:6px"><button class="btn btn-p" style="flex:1" onclick="quickSight(\''+f.id+'\')">✅ Spotted now</button><button class="btn btn-s" onclick="openSighting(null,{item:\''+f.id+'\'})">＋ With details</button></div>';
     h+='<div style="margin-top:6px">'+(ss.length?ss.map(sightRow).join(''):'<div class="hint" style="padding:8px 0">Not spotted yet.</div>')+'</div>';
   }
-  if(!isNew){var rf=f.ref&&S.refs[f.ref];
-    h+='<div class="m-lbl">📚 Library</div>'+(rf?'<div class="row"><button class="btn btn-s" style="flex:1;justify-content:flex-start" onclick="openRefView(\''+rf.id+'\')">📚 '+esc(rf.name)+'</button><button class="btn btn-g btn-sm" onclick="_imCap();delete IM.f.ref;rItem()">Unlink</button></div>':
-      '<div class="row"><button class="btn btn-s" style="flex:1" onclick="_imCap();itemToRef()">＋ Add to library</button><button class="btn btn-s" style="flex:1" onclick="_imCap();refPick(function(id){IM.f.ref=id;rItem();})">🔗 Link entry</button></div>');}
-  h+='<div class="m-lbl">Notes</div><textarea class="m-in" id="im-notes" placeholder="Details, size, colorway, story…">'+esc(f.notes||'')+'</textarea>';
-  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" onclick="saveItem()">'+(isNew?'Save item':'Save')+'</button></div>';
+  // more pictures (other angles)
+  var extra=(f.imgs||[]);
+  h+='<div class="m-lbl">More pictures <span class="r hint">other angles, tags, details</span></div><div class="ref-thumbs">'+extra.map(function(k,i){return'<div class="rt">'+imgHTML(k)+'<button onclick="_imCap();IM.f.imgs.splice('+i+',1);rItem()">✕</button></div>';}).join('')+
+    (IM.addImgs||[]).map(function(d,i){return'<div class="rt"><img src="'+d+'"><button onclick="_imCap();IM.addImgs.splice('+i+',1);rItem()">✕</button></div>';}).join('')+
+    '<button class="rt-add" onclick="_imCap();pickPhoto(\'gal\',function(d){IM.addImgs.push(d);rItem();})">＋🖼</button><button class="rt-add" onclick="_imCap();pickPhoto(\'cam\',function(d){IM.addImgs.push(d);rItem();})">＋📷</button></div>';
+  // details used by 🔎 Find (inherits from library folder)
+  var inh=lp?traitSummary(effTraits(lp)):'',nsel=Object.keys(f.traits||{}).filter(function(k){return(f.traits[k]||[]).length;}).length;
+  h+='<details class="sec" '+(TR_OPEN.IT._open?'open':'')+' ontoggle="TR_OPEN.IT._open=this.open"><summary style="font-weight:700;font-size:13px">🔎 Details for Find'+(nsel?' ('+nsel+')':'')+'</summary>'+(inh?'<div class="hint" style="margin:4px 0">From its folder: <b>'+esc(inh)+'</b></div>':'')+(f.cat?traitsHTML('IT',TR_OPEN.IT):'<div class="hint">Pick a category first.</div>')+'</details>';
+  h+='<div class="m-lbl">Notes & tells</div><textarea class="m-in" id="im-notes" placeholder="Details, size, colorway, story, how to tell it apart…">'+esc(f.notes||'')+'</textarea>';
+  if(IM.draft)h+='</div><div class="mo-f">'+(IM.trayId?'<button class="btn btn-d" onclick="if(confirm(\'Delete this draft?\')){trayRemove(IM.trayId);closeModal(1);openTray();}">🗑</button>':'')+'<button class="btn btn-s" onclick="closeModal(1);openTray()">Cancel</button><button class="btn btn-p" onclick="saveItem()">📥 Save to tray</button></div>';
+  else h+='</div><div class="mo-f">'+(IM.batch?'<button class="btn btn-s" onclick="closeModal(1);batchNext(false)">Skip</button>':'<button class="btn btn-s" onclick="imClose()">Cancel</button>')+
+    (isNew&&!IM.batch&&!IM.ctx?'<button class="btn btn-s" title="Keep as a draft — assign date & place later in a batch" onclick="IM.draft=true;saveItem()">📥 Tray</button>':'')+
+    '<button class="btn btn-p" onclick="saveItem()">'+(isNew?(IM.batch?'Save & next':'Save item'):'Save')+'</button></div>';
   var keepScroll=$('mo-l1')&&$('mo-l1').querySelector('.mo-b');var st=keepScroll?keepScroll.scrollTop:0;
   openModal(h,1);
   var nb=$('mo-l1').querySelector('.mo-b');if(nb)nb.scrollTop=st;
@@ -1283,7 +1390,7 @@ function studioAdd(d,label,isSource){
   IM.vers.push({d:d,label:label,src:!!isSource});IM.cur=IM.vers.length-1;IM.stickerPrev=null;rItem();
   if(isSource&&L.autoProcess&&L.autoProcess!=='none')setTimeout(function(){studioRun(L.autoProcess);},50);
 }
-function studioPick(kind){_imCap();pickPhoto(kind,function(d){studioAdd(d,'Photo',true);});}
+function studioPick(kind){_imCap();pickPhoto(kind,function(d,meta){studioAdd(d,'Photo',true);if(meta)applyPhotoMeta(meta);});}
 function studioBusy(msg){if(!IM)return;IM.busy=msg;var b=$('st-busy');if(b&&msg){b.textContent=msg;return;}rItem();}
 function studioRun(kind){
   _imCap();
@@ -1310,34 +1417,56 @@ function studioSticker(){
   if(IM.stickerPrev&&IM.stickerPrev.i===IM.cur){IM.stickerPrev=null;return rItem();}
   studioCur(function(src){makeSticker(src,function(s){if(!s)return toast('Sticker failed');IM.stickerPrev={i:IM.cur,d:s};IM.prevWhite=false;rItem();});});
 }
-function saveItem(){
+function saveItem(quiet){
+  quiet=quiet===true;
   _imCap();
   var f=IM.f;
-  if(!f.name.trim()){var n=$('im-name');if(n){n.focus();n.style.borderColor='var(--bad)';}return toast('Give it a name');}
+  if(quiet){if(!IM.draft||IM.saving)return Promise.resolve();IM.saving=true;}
+  else if(!f.name.trim()){var n=$('im-name');if(n){n.focus();n.style.borderColor='var(--bad)';}return toast('Give it a name');}
   f.name=f.name.trim();
-  var v=IM.vers[IM.cur];
+  var v=IM.vers[IM.cur],myIM=IM;
   var oldImg=IM.isNew?null:S.items[IM.id].img,oldOrig=IM.isNew?null:S.items[IM.id].orig;
   var finish=function(){
+    if(IM.draft){
+      var tid=myIM.trayId||('tr_'+gid()),old=S.tray[tid]?trayDraft(S.tray[tid]):null;
+      if(old)[old.img,old.orig].forEach(function(k){if(k&&k!==f.img&&k!==f.orig&&!_imgInUse(k,tid))fbDeleteImage(k);});
+      f.created=f.created||now();
+      put('tray',{id:tid,draft:clone(f),sel:S.tray[tid]?S.tray[tid].sel!==false:true,created:S.tray[tid]?S.tray[tid].created:now(),dev:L.me});
+      if(quiet){// stay in the editor — just remember what's been stored so the next save doesn't duplicate photos
+        myIM.trayId=tid;myIM.addImgs=[];myIM.saving=false;if(v&&f.img){v.k=f.img;}myIM.vers.forEach(function(x){if(x.src&&f.orig)x.k=x.k||f.orig;});
+        var st=$('im-autosave');if(st)st.textContent='☁️ Draft saved '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});return;}
+      closeModal(1);render();toast('📥 '+f.name+' saved to tray ('+trayList().length+')',2200);return openTray();
+    }
     if(IM.isNew)f.created=now();
     put('items',f);
     // drop images no longer referenced
     [oldImg,oldOrig].forEach(function(k){if(k&&k!==f.img&&k!==f.orig)fbDeleteImage(k);});
-    var ctx=IM.ctx,first=IM.isNew&&IM.logFirst?IM.first:null;
+    var ctx=IM.ctx,first=IM.isNew&&IM.logFirst?IM.first:null,wasBatch=IM.batch,back=IM.fromView;
     closeModal(1);
+    if(wasBatch){if(first){addSighting({item:f.id,date:first.date,by:first.by.slice(),place:first.place,note:first.note});if(first.place){L.lastPlace=first.place;L.lastPlaceDay=tod();svL();}}render();toast('Saved '+f.name);return batchNext(true);}
+    if(back&&!ctx){render();return openItemView(f.id);}
     if(first){var s=addSighting({item:f.id,date:first.date,by:first.by.slice(),place:first.place,note:first.note,card:ctx&&ctx.card});if(first.place){L.lastPlace=first.place;svL();}if(ctx)fulfilCell(ctx.card,ctx.cell,f.id,s);}
     else if(ctx){var s2=addSighting({item:f.id,date:tod(),by:[L.me],place:'',card:ctx.card});fulfilCell(ctx.card,ctx.cell,f.id,s2);}
     render();toast(IM&&IM.isNew?'Saved':'Saved ✓');
   };
-  if(!v){f.img=f.img||'';return finish();}
-  var srcV=IM.vers.find(function(x){return x.src;})||null;
   var tasks=[];
-  if(v.k)f.img=v.k;else tasks.push(resizeData(v.d,800,'webp',0.88).then(function(d){f.img=imgSave(d);}));
+  f.imgs=(f.imgs||[]).slice();
+  (IM.addImgs||[]).forEach(function(d){tasks.push(tidyMaybe(d).then(function(t){return resizeData(t,900,'webp',0.86);}).then(function(x){f.imgs.push(imgSave(x));}));});
+  if(f.mock&&!f.mockImg)tasks.push(shoePNG(f.mock).then(function(p){if(p)f.mockImg=imgSave(p);}));
+  if(!v){f.img=f.img||'';return Promise.all(tasks).then(finish);}
+  var srcV=IM.vers.find(function(x){return x.src;})||null;
+  if(v.k)f.img=v.k;else tasks.push(tidyMaybe(v.d).then(function(t){return resizeData(t,800,'webp',0.88);}).then(function(d){f.img=imgSave(d);}));
   // keep the untouched photo as "orig" (small) so you can redo the clean-up later
   if(L.keepOrig&&srcV&&srcV!==v&&srcV.d)tasks.push(resizeData(srcV.d,1000,'jpeg',0.82).then(function(d){f.orig=imgSave(d);}));
   else if(!srcV&&IM.vers.some(function(x){return x.k&&x.k===oldOrig;}))f.orig=oldOrig;
   else if(srcV===v||!L.keepOrig)f.orig='';
-  Promise.all(tasks).then(finish).catch(function(e){alert('Save failed: '+e.message);});
+  return Promise.all(tasks).then(finish).catch(function(e){myIM.saving=false;if(!quiet)alert('Save failed: '+e.message);});
 }
+// drafts autosave (and sync) when you switch away from the app, and every 20s while editing — pick up on any device from the tray
+function draftAutosave(){if(IM&&IM.draft&&$('mo-l1')&&$('im-name'))saveItem(true);}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')draftAutosave();});
+window.addEventListener('pagehide',draftAutosave);
+setInterval(function(){if(IM&&IM.draft&&IM._dirtyTick!==JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders])){IM._dirtyTick=JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders]);if(IM._seen)draftAutosave();IM._seen=true;}},20000);
 function deleteItem(){
   var it=S.items[IM.id];if(!it)return;var ss=itemSightings(it.id);
   if(!confirm('Delete "'+it.name+'" and its '+ss.length+' sighting(s)?'))return;
@@ -1348,23 +1477,25 @@ function deleteItemById(id){
   itemSightings(id).forEach(function(s){if(s.photo)fbDeleteImage(s.photo);del('sightings',s.id);});
   vals(S.cards).forEach(function(c){var ch=false;(c.cells||[]).forEach(function(cell){if(cell.ref===id&&cell.t==='item'){cell.t='empty';cell.ref='';ch=true;}});if(ch)put('cards',c);});
   vals(S.stamps).forEach(function(st){if(st.item===id)del('stamps',st.id);});
-  fbDeleteImage(it.img);fbDeleteImage(it.orig);del('items',id);
+  [it.img,it.orig,it.mockImg].concat(it.imgs||[]).forEach(function(k){if(k&&!_imgInUse(k,id))fbDeleteImage(k);});
+  vals(S.refs).forEach(function(g){if(g.coverFrom===id){var x=clone(g);x.coverFrom='';put('refs',x);}});
+  del('items',id);
 }
 function quickSpot(){openItemModal(null,{});setTimeout(function(){studioPick('cam');},60);}
 
 // ════════════ SIGHTINGS ════════════
 function addSighting(o){var s={id:'s_'+gid(),item:o.item,date:o.date||tod(),by:o.by&&o.by.length?o.by:[L.me],place:o.place||'',note:o.note||'',card:o.card||'',photo:o.photo||'',created:now()};put('sightings',s);return s;}
 function quickSight(itemId,ctx){
-  var s=addSighting({item:itemId,place:L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:'',card:ctx&&ctx.card});
+  var sd=sessDefaults();var s=addSighting({item:itemId,date:sd.date,by:sd.by,place:sd.place,card:ctx&&ctx.card});
   if(ctx)fulfilCell(ctx.card,ctx.cell,itemId,s);
   toast('✅ Spotted by '+person(L.me).name+' · tap the entry to add details');
-  if(IM&&IM.id===itemId)rItem();render();return s;
+  if(IM&&IM.id===itemId)rItem();if(IV&&IV.id===itemId&&$('mo-l'+IV.level))rIV();render();return s;
 }
 var SM=null;
 function openSighting(id,opts){
   opts=opts||{};
   if(id&&S.sightings[id])SM={f:clone(S.sightings[id]),isNew:false};
-  else SM={f:{id:'s_'+gid(),item:opts.item,date:opts.date||tod(),by:[L.me],place:L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:'',note:'',photo:'',card:opts.ctx?opts.ctx.card:''},isNew:true,ctx:opts.ctx};
+  else{var sd=sessDefaults();SM={f:{id:'s_'+gid(),item:opts.item,date:opts.date||sd.date,by:sd.by,place:sd.place||(L.lastPlace&&S.places[L.lastPlace]?L.lastPlace:''),note:'',photo:'',card:opts.ctx?opts.ctx.card:''},isNew:true,ctx:opts.ctx};}
   rSight();
 }
 function _smCap(){if(!SM)return;var e;if((e=$('sm-date')))SM.f.date=e.value||tod();if((e=$('sm-note')))SM.f.note=e.value;}
@@ -1390,13 +1521,13 @@ function saveSighting(){
     if(wasNew)f.created=now();put('sightings',f);
     if(f.place){L.lastPlace=f.place;L.lastPlaceDay=tod();svL();}
     if(ctx)fulfilCell(ctx.card,ctx.cell,f.item,f);
-    closeModal(2);if(IM)rItem();if($('mo-l1')&&$('mo-l1').getAttribute('data-day'))openDay($('mo-l1').getAttribute('data-day'));render();
+    closeModal(2);if(IM)rItem();if(IV&&$('mo-l'+IV.level))rIV();if($('mo-l1')&&$('mo-l1').getAttribute('data-day'))openDay($('mo-l1').getAttribute('data-day'));render();
   };
   if(f.photoD)resizeData(f.photoD,900,'jpeg',0.82).then(function(d){f.photo=imgSave(d);go();});else go();
 }
 function delSighting(){if(!confirm('Delete this sighting?'))return;var s=S.sightings[SM.f.id];if(s&&s.photo)fbDeleteImage(s.photo);
   vals(S.stamps).forEach(function(st){if(st.sid===SM.f.id)del('stamps',st.id);});
-  del('sightings',SM.f.id);closeModal(2);if(IM)rItem();render();}
+  del('sightings',SM.f.id);closeModal(2);if(IM)rItem();if(IV&&$('mo-l'+IV.level))rIV();render();}
 
 // ════════════ PLACES ════════════
 // Search order: your Spotted places + Decade Journal places (instant) → Google Places (if key) → Photon → Nominatim
@@ -1538,7 +1669,7 @@ function viewCal(){
   return h;
 }
 function daySightRow(s){var it=S.items[s.item]||{name:'(deleted item)'},c=cat(it.cat);
-  return'<div class="li" onclick="openItemModal(\''+s.item+'\')">'+(it.img?imgHTML(it.img,'thumb'):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div class="grow"><div class="t">'+esc(it.name)+'</div><div class="s">'+(s.place?'📍 '+esc(placeName(s.place)):'')+(s.note?' · '+esc(s.note):'')+'</div></div><div class="row" style="gap:2px">'+(s.by||[]).map(function(p){return pdot(p);}).join('')+'</div></div>';}
+  return'<div class="li" onclick="openItemView(\''+s.item+'\')">'+(it.img?imgHTML(it.img,'thumb'):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'<div class="grow"><div class="t">'+esc(it.name)+'</div><div class="s">'+(s.place?'📍 '+esc(placeName(s.place)):'')+(s.note?' · '+esc(s.note):'')+'</div></div><div class="row" style="gap:2px">'+(s.by||[]).map(function(p){return pdot(p);}).join('')+'</div></div>';}
 function calNav(d){L.calM+=d;if(L.calM<0){L.calM=11;L.calY--;}if(L.calM>11){L.calM=0;L.calY++;}svL();render();}
 function openDay(ds){
   var ss=vals(S.sightings).filter(function(s){return s.date===ds;}).sort(function(a,b){return(a.created||0)-(b.created||0);});
@@ -1570,17 +1701,11 @@ function syncTap(){
   fbTogglePause();toast(FB.paused?'⏸ Sync paused — changes stay on this phone':'▶ Sync resumed — pushing changes',2200);
 }
 
-function itemToRef(){var f=IM.f;var ex=vals(S.refs).find(function(r){return r.name.toLowerCase()===f.name.toLowerCase();});if(ex){IM.f.ref=ex.id;rItem();return toast('Linked to existing library entry');}
-  var r=put('refs',{id:'rf_'+gid(),name:f.name.replace(/^❓\s*/,''),cat:f.cat,traits:clone(f.traits||{}),imgs:f.img?[f.img]:[],notes:'',created:now()});IM.f.ref=r.id;rItem();openRefEditor(r.id);}
 var _rpCb=null;
-function refPick(cb){_rpCb=cb;var rs=vals(S.refs).sort(function(a,b){return a.name.localeCompare(b.name);});
-  var h='<div class="mo-h"><h3>Link to library</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">'+(rs.length?'<div class="pick-grid">'+rs.map(function(r){var k=refThumb(r);return'<div class="pick" onclick="closeModal(2);_rpCb(\''+r.id+'\')">'+(k?imgHTML(k):'<div class="thumb">📚</div>')+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div>':'<div class="empty">Library is empty.</div>')+'</div>';
-  openModal(h,2);}
-
-function selToLib(){var ids=selIds();openTreePicker({title:'Add '+ids.length+' to library in…',onPick:function(d){itemsToLib(ids,d);SEL=null;render();}});}
-
 function imToggleMystery(){var f=IM.f;f.mystery=!f.mystery;if(f.mystery&&!f.desc)f.desc=f.notes||'';toast(f.mystery?'❓ Will show under To identify':'✓ Marked as identified',1800);rItem();}
 function selMystery(){var ids=selIds(),on=!ids.every(function(id){return S.items[id].mystery;});ids.forEach(function(id){var x=clone(S.items[id]);x.mystery=on;if(on&&!x.desc)x.desc=x.notes||'';put('items',x);});SEL=null;render();toast(on?'❓ '+ids.length+' moved to To identify':'✓ '+ids.length+' marked identified');}
+
+function imClose(){var back=IM&&IM.fromView&&IM.id;closeModal(1);if(back)openItemView(back);}
 
 // ════════════════════════════════════════════════════════════════
 //  BINGO
@@ -1805,7 +1930,7 @@ function openCell(cid,i){
   if(st){
     var s=S.sightings[st.sid];
     h+='<div class="sec"><b>Stamped '+fmtDate(st.d)+'</b> by '+(st.by||[]).map(function(p){return(person(p)||{name:'?'}).name;}).join(' & ')+(s&&s.place?' · 📍 '+esc(placeName(s.place)):'')+'</div>';
-    h+='</div><div class="mo-f"><button class="btn btn-s" onclick="unstamp(\''+cid+'\','+i+')">Unstamp</button>'+(it?'<button class="btn btn-p" onclick="closeModal(1);openItemModal(\''+it.id+'\')">Open item</button>':'')+'</div>';
+    h+='</div><div class="mo-f"><button class="btn btn-s" onclick="unstamp(\''+cid+'\','+i+')">Unstamp</button>'+(it?'<button class="btn btn-p" onclick="closeModal(1);openItemView(\''+it.id+'\')">Open item</button>':'')+'</div>';
     return openModal(h,1);
   }
   if(cell.t==='item'&&it){
@@ -1974,6 +2099,8 @@ function openSettings(sec){
   var nOrig=vals(S.items).filter(function(i){return i.orig;}).length;
   h+='<div class="sec"><h4>🗂 Photo storage</h4><label class="toggle"><input type="checkbox" '+(L.keepOrig?'checked':'')+' onchange="L.keepOrig=this.checked;svL()">Keep the original photo after cleaning it up</label>'+
     '<div class="hint">Off = only the cleaned-up picture is saved (about half the space). On = you can redo the clean-up later.</div>'+
+    '<label class="toggle" style="margin-top:6px"><input type="checkbox" '+(L.autoTidy!==false?'checked':'')+' onchange="L.autoTidy=this.checked;svL()">✨ Auto-tidy new pictures (true-white background, even cropping)</label>'+
+    '<div class="row" style="margin-top:4px"><button class="btn btn-p" onclick="closeModal(1);openTidyAll()">✨ Tidy all existing pictures…</button></div>'+
     '<div class="row" style="margin-top:8px"><button class="btn btn-s" '+(nOrig?'':'disabled')+' onclick="clearOriginals()">🧹 Remove all original photos ('+nOrig+')</button></div>'+
     '<div class="hint" style="margin-top:4px" id="store-est">Estimating storage…</div></div>';
   h+='<div class="sec"><h4>💾 Backup to a real file</h4><div class="hint">'+nI+' items · '+nS+' sightings · '+Object.keys(S.cards).length+' cards · '+Object.keys(S.places).length+' places. Saves to Downloads — doesn\'t rely on browser storage.</div>'+
@@ -2008,7 +2135,7 @@ function boot(){
   ld();
   var start=function(){restoreLocalSettings(function(){applyTheme();start2();});};
   var start2=function(){
-    seedDefaults();migrateStamps();adoptSyncedKeys();render();watchRemoteBingos();
+    seedDefaults();migrateStamps();migrateLibrary();adoptSyncedKeys();render();watchRemoteBingos();
     var cfg=fbCfg(),room=fbRoom();
     if(cfg&&room&&localStorage.getItem('ib_fb_room'))fbInit(cfg,room);
     checkSharedImage();
@@ -2067,7 +2194,7 @@ function openDJImport(target){
   }else fromLocal('not connected to sync');
 }
 function _djCol(id){return DJI.cols.find(function(c){return c.id===id;});}
-function _djImported(){var m={};vals(DJI&&DJI.target==='lib'?S.refs:S.items).forEach(function(i){if(i.djId)m[i.djId]=i.id;});return m;}
+function _djImported(){var m={};vals(S.items).forEach(function(i){if(i.djId)m[i.djId]=i.id;if(i.djLibId)m[i.djLibId]=i.id;});return m;}
 function djiList(){var q=DJI.q.toLowerCase().trim();return DJI.items.filter(function(i){
   if(DJI.col!=='all'&&i.collection!==DJI.col)return false;
   if(q&&(i.name+' '+(i.notes||'')+' '+(i.tags||[]).join(' ')).toLowerCase().indexOf(q)<0)return false;return true;}).sort(function(a,b){return a.name.localeCompare(b.name);});}
@@ -2150,7 +2277,7 @@ function djiStep2Lib(ids){
   h+='<div class="m-lbl">Put them in</div><button class="btn btn-s btn-block" style="justify-content:flex-start" onclick="openTreePicker({title:\'Put them in…\',start:DJI.dest,onPick:function(d){DJI.dest=d;djiStep2();}})">📂 '+(dest?esc((refPath(dest)?refPath(dest)+' › ':'')+dest.name):'Library (top level)')+'</button>';
   h+='<label class="toggle"><input type="checkbox" '+(DJI.colFolders?'checked':'')+' onchange="DJI.colFolders=this.checked">Make a sub-folder for each journal collection (e.g. “👟 Jerico\'s Shoe Collection”)</label>';
   h+='<div class="m-lbl">Type</div><div class="chips" style="flex-wrap:wrap"><button class="chip'+(!DJI.cat?' on':'')+'" onclick="DJI.cat=\'\';djiStep2()">Guess from collection</button>'+catList().map(function(c){return'<button class="chip'+(DJI.cat===c.id?' on':'')+'" onclick="DJI.cat=\''+c.id+'\';djiStep2()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
-  h+='<div class="hint" style="margin-top:8px">Each one becomes a library entry with its journal photo and notes. Nothing is logged as a sighting, and the journal isn\'t changed. Re-importing skips ones already in the library.</div>';
+  h+='<div class="hint" style="margin-top:8px">Each one becomes an item filed in that library folder, with its journal photo and notes. Nothing is logged as a sighting, and the journal isn\'t changed. Re-importing skips ones already in the library.</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="rDJI()">Back</button><button class="btn btn-p" onclick="djiRun()">Add to library</button></div>';
   openModal(h,1);
 }
@@ -2182,7 +2309,7 @@ function djiRun(){
         n++;setTimeout(next,30);};
       if(!src){noImg++;return fin('');}
       var p=src.indexOf('data:')===0?Promise.resolve(src):urlToData(src);
-      p.then(function(x){return resizeData(x,800,'webp',0.88);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
+      p.then(tidyMaybe).then(function(x){return resizeData(x,800,'webp',0.88);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
     });
   };
   next();
@@ -2197,11 +2324,11 @@ function djiRunLib(todo){
       var gid0=colGroup[c.id]||(vals(S.refs).find(function(r){return isGroup(r)&&r.djCol===c.id&&(r.parent||'')===dest;})||{}).id;
       if(!gid0){gid0='rf_'+gid();put('refs',{id:gid0,group:true,name:c.name,emoji:c.icon||'📓',parent:dest,cat:catId,djCol:c.id,traits:{},imgs:[],created:now()});}
       colGroup[c.id]=gid0;parent=gid0;}}
-    var r={id:'rf_'+gid(),name:d.name,parent:parent,cat:catId,traits:{},imgs:[],notes:d.notes||'',djId:d.id,created:now()};
+    var r={id:'it_'+gid(),name:d.name,parent:parent,cat:catId,traits:{},img:'',imgs:[],notes:d.notes||'',djLibId:d.id,folders:[],created:now()};
     djImage(d,function(src){
-      var fin=function(k){if(k)r.imgs=[k];put('refs',r);n++;setTimeout(next,30);};
+      var fin=function(k){if(k)r.img=k;put('items',r);n++;setTimeout(next,30);};
       if(!src){noImg++;return fin('');}
-      (src.indexOf('data:')===0?Promise.resolve(src):urlToData(src)).then(function(x){return resizeData(x,900,'webp',0.86);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
+      (src.indexOf('data:')===0?Promise.resolve(src):urlToData(src)).then(tidyMaybe).then(function(x){return resizeData(x,900,'webp',0.86);}).then(function(x){fin(imgSave(x));}).catch(function(){noImg++;fin('');});
     });
   };
   toast('Adding '+todo.length+' to library…',3000);next();
@@ -2570,16 +2697,6 @@ function refScore(ref,sel,catId){
     want.forEach(function(v){if(have.indexOf(v)>=0)s+=(fid==='line'||fid==='brand')?3:1;else if(have.length)miss++;});});
   return s-miss*0.5;
 }
-function refMatches(sel,catId,q,within){
-  q=(q||'').toLowerCase().trim();var any=Object.keys(sel).some(function(k){return(sel[k]||[]).length;});
-  var pool=within?refEntriesUnder(within):vals(S.refs);
-  return pool.map(function(r){return{r:r,s:refScore(r,sel,catId)};}).filter(function(x){
-    if(x.s<0)return false;if(q&&(x.r.name+' '+refPath(x.r)+' '+(x.r.notes||'')+' '+traitSummary(effTraits(x.r))).toLowerCase().indexOf(q)<0)return false;return !any||x.s>0;})
-    .sort(function(a,b){return b.s-a.s||a.r.name.localeCompare(b.r.name);});
-}
-function refThumb(r){return r.cover||(r.imgs&&r.imgs.length?r.imgs[0]:(r.mockImg||''));}
-function refLinkedItem(refId){return vals(S.items).find(function(i){return i.ref===refId;});}
-
 // ════════════ 🔎 FIND ════════════
 var F=null;
 function openFind(opts){
@@ -2607,23 +2724,16 @@ function rFind(){
       (F.photo?'<button class="btn btn-s btn-sm" onclick="ID={photo:F.photo};idLens()">🔍 Google Lens</button><button class="btn btn-g btn-sm" onclick="F.photo=null;rFind()">✕</button>':'')+'</div>':'')+'</div>';
   if(!F.itemId)h+='<div style="margin-top:8px">'+placeChip(F.place,'_fCap();openPlacePicker(function(id){F.place=id;rFind();})','_fCap();F.place=\'\';rFind()')+'</div>';
   // matches
-  var total=vals(S.refs).filter(function(r){return!isGroup(r)&&effCat(r)===F.cat;}).length;
-  h+='<div class="m-lbl" style="margin-top:14px">📚 Your library <span class="r">'+m.length+' of '+total+'</span></div>';
+  var total=vals(S.items).filter(function(r){return effCat(r)===F.cat;}).length;
+  h+='<div class="m-lbl" style="margin-top:14px">📚 Your inventory <span class="r">'+m.length+' of '+total+'</span></div>';
   h+='<input class="m-in" id="f-q" placeholder="Search library names / notes" value="'+esc(F.q)+'" oninput="F.q=this.value;debounce(\'fq\',function(){var e=$(\'find-match\');if(e){e.innerHTML=findMatchHTML();hydrate(e);}},200)" style="margin-bottom:8px">';
   h+='<div id="find-match">'+findMatchHTML()+'</div>';
-  if(vals(S.refs).some(isGroup))h+='<button class="btn btn-s btn-block" style="margin-top:8px" onclick="_fCap();openTreePicker({title:\'Browse your library\',browse:true,fromFind:true})">📂 Browse folders instead</button>';
+  if(vals(S.refs).length)h+='<button class="btn btn-s btn-block" style="margin-top:8px" onclick="_fCap();openTreePicker({title:\'Browse your library\',browse:true,fromFind:true})">📂 Browse folders instead</button>';
   var words=[].concat.apply([],Object.keys(F.traits).map(function(k){return F.traits[k];})).join(' ');
   h+='<div class="row" style="margin-top:10px"><a class="btn btn-s btn-sm" style="flex:1;text-decoration:none" href="https://www.google.com/search?tbm=isch&q='+encodeURIComponent(words+' '+((cat(F.cat)||{}).name||''))+'" target="_blank" rel="noopener">🖼 Google Images for these words</a>'+
     (idProvider()?'<button class="btn btn-g btn-sm" onclick="_fCap();fToAI()">🤖 Ask AI</button>':'')+'</div>';
   h+='</div><div class="mo-f"><button class="btn btn-s" onclick="_fCap();fSaveMystery()">❓ '+(F.itemId?'Save notes':'Save as mystery')+'</button><button class="btn btn-p" onclick="_fCap();fToRef()">＋ Add to library</button></div>';
   var st=$('find-b')?$('find-b').scrollTop:0;openModal(h,1);var b=$('find-b');if(b)b.scrollTop=st;
-}
-function findMatchHTML(){
-  var m=refMatches(F.traits,F.cat,F.q);
-  if(!vals(S.refs).length)return'<div class="hint">Your library is empty. Add references from the 📚 Library tab (your own pics, screenshots, saved images) — or tap <b>＋ Add to library</b> to save what you\'re describing now.</div>';
-  if(!m.length)return'<div class="hint">Nothing in your library matches all of that. Fold a section or untick a detail.</div>';
-  return'<div class="pick-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+m.slice(0,60).map(function(x){var r=x.r,k=refThumb(r);
-    return'<div class="pick" onclick="openRefView(\''+r.id+'\',true)">'+(k?imgHTML(k,'','style="height:76px;background:#fff"'):'<div class="thumb" style="height:76px">'+((cat(r.cat)||{}).icon||'📦')+'</div>')+'<div style="white-space:normal;height:2.4em;line-height:1.2em;overflow:hidden">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
 }
 function fToAI(){var desc=['Type: '+((cat(F.cat)||{}).name||'')].concat(traitSchema(F.cat).map(function(f){var v=F.traits[f.id];return v&&v.length?f.name+': '+v.join(', '):'';}).filter(Boolean)).concat(F.notes?['Notes: '+F.notes]:[]).join('\n');
   var keep=F;openIdentify({});ID.cat=keep.cat;ID.text=desc;ID.photo=keep.photo;rID();}
@@ -2637,20 +2747,7 @@ function fSaveMystery(){
     if(F.photo)resizeData(F.photo,900,'webp',0.85).then(function(d){it2.img=imgSave(d);fin();});else{if(mp)it2.img=imgSave(mp);fin();}
   });
 }
-function fToRef(){openRefEditor(null,{cat:F.cat,traits:clone(F.traits),notes:F.notes,mock:F.mock?clone(F.mock):null,photo:F.photo,fromFind:true});}
 // "✓ This is it" from a library match
-function refPicked(refId){
-  var r=S.refs[refId];if(!r)return;
-  var date=F?F.date:tod(),place=F?F.place:'';
-  closeModal(2);closeModal(1);
-  if(F&&F.itemId&&S.items[F.itemId]){var it=clone(S.items[F.itemId]);it.name=r.name;it.mystery=false;it.ref=r.id;it.traits=effTraits(r);if(!it.img&&refThumb(r))it.img=refThumb(r);put('items',it);render();toast('❓ → '+r.name);F=null;return openItemModal(it.id);}
-  var linked=refLinkedItem(r.id)||vals(S.items).find(function(i){return i.name.toLowerCase()===r.name.toLowerCase();});
-  if(linked){addSighting({item:linked.id,date:date,place:place});if(!linked.ref){var l2=clone(linked);l2.ref=r.id;put('items',l2);}render();toast('✅ Spotted: '+r.name);F=null;return;}
-  var it2={id:'it_'+gid(),name:r.name,cat:effCat(r),ref:r.id,traits:effTraits(r),notes:r.notes||'',folders:[],created:now(),img:refThumb(r)};
-  put('items',it2);addSighting({item:it2.id,date:date,place:place});if(place){L.lastPlace=place;L.lastPlaceDay=tod();svL();}
-  render();toast('✅ Added '+r.name+' + sighting');F=null;openItemModal(it2.id);
-}
-
 // ════════════ 📚 LIBRARY TAB — a tree: Nike › Dunk Low › colorways ════════════
 var LF={cat:'all',traits:{},q:'',sel:null,node:''};
 try{LF.node=L.libNode||'';}catch(e){}
@@ -2660,16 +2757,20 @@ function viewLibrary(){
   if(LF.node&&!S.refs[LF.node])LF.node='';
   var node=LF.node?S.refs[LF.node]:null;
   var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search '+(node?esc(node.name):'your library')+'…" value="'+esc(LF.q)+'" oninput="LF.q=this.value;debounce(\'lq\',function(){var g=$(\'lib-grid\');if(g){g.innerHTML=libGridHTML();hydrate(g);}},250)" style="flex:1">'+
+    '<select class="m-in" style="width:auto;padding:9px 4px;font-size:12px" onchange="L.libSort=this.value;svL();render()">'+[['name','A–Z'],['last','Recently spotted'],['first','Earliest spotted'],['most','Most spotted'],['added','Recently added']].map(function(o){return'<option value="'+o[0]+'"'+((L.libSort||'name')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
     '<button class="btn btn-p" onclick="libAddMenu()">＋</button></div>';
+  var sh=L.libShow||'all',cnt=function(m){return vals(S.items).filter(function(i){return libShowOk(i,m);}).length;};
+  h+='<div class="chips" style="margin-bottom:8px">'+[['all','All'],['spotted','👀 Spotted'],['grail','🌟 Never spotted'],['pending','❓ Pending ID']].map(function(o){
+    return'<button class="chip'+(sh===o[0]?' on':'')+'" onclick="L.libShow=\''+o[0]+'\';svL();render()">'+o[1]+(o[0]!=='all'?' <span class="hint">'+cnt(o[0])+'</span>':'')+'</button>';}).join('')+'</div>';
   // breadcrumb
   var crumbs=node?refAncestors(node).concat([node]):[];
   h+='<div class="crumbs"><button onclick="libGo(\'\')">📚 Library</button>'+crumbs.map(function(c){return'<span>›</span><button onclick="libGo(\''+c.id+'\')">'+esc(c.name)+'</button>';}).join('')+'</div>';
   if(node){var k=refThumb(node),ne=refEntriesUnder(node.id).length;
-    h+='<div class="grp-head">'+libAvatar(node,64)+'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:18px">'+esc(node.name)+'</div><div class="hint">'+ne+' entr'+(ne===1?'y':'ies')+(traitSummary(node.traits)?' · '+esc(traitSummary(node.traits)):'')+'</div></div>'+
+    h+='<div class="grp-head">'+libAvatar(node,64)+'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:18px">'+esc(node.name)+'</div><div class="hint">'+ne+' item'+(ne===1?'':'s')+(traitSummary(node.traits)?' · '+esc(traitSummary(node.traits)):'')+'</div></div>'+
       '<button class="btn btn-s btn-sm" onclick="openRefEditor(\''+node.id+'\')">✏️</button></div>';
     if(node.notes)h+='<div class="sec" style="margin-top:6px"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap">'+esc(node.notes)+'</div></div>';}
   h+='<div class="row wrap" style="margin:8px 0"><button class="btn btn-s btn-sm" onclick="openStudy()">🃏 Study'+(node?' this':'')+'</button><button class="btn btn-s btn-sm" onclick="LF.sel=LF.sel?null:{};render()">'+(LF.sel?'✖️ Done selecting':'☑️ Select')+'</button>'+
-    '<button class="btn btn-g btn-sm" onclick="libFromItems()">↧ From my items</button>'+
+    '<button class="btn btn-g btn-sm" onclick="libFromItems()">↧ File items here</button>'+
     '<button class="btn btn-g btn-sm" onclick="TR_OPEN.LF._open=!TR_OPEN.LF._open;render()">🔎 Filter</button></div>';
   if(TR_OPEN.LF._open){
     h+='<div class="sec" style="margin-top:0"><div class="chips" style="flex-wrap:wrap"><button class="chip'+(LF.cat==='all'?' on':'')+'" onclick="LF.cat=\'all\';LF.traits={};render()">Any type</button>'+catList().map(function(c){return'<button class="chip'+(LF.cat===c.id?' on':'')+'" onclick="LF.cat=\''+c.id+'\';LF.traits={};render()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>'+
@@ -2680,118 +2781,33 @@ function viewLibrary(){
   h+='<div id="lib-grid">'+libGridHTML()+'</div>';
   return h;
 }
-function _imgInUse(k,exceptRefId){if(!k)return false;return vals(S.items).some(function(i){return i.img===k||i.orig===k;})||vals(S.refs).some(function(r){return r.id!==exceptRefId&&((r.imgs||[]).indexOf(k)>=0||r.cover===k||r.mockImg===k);});}
-function _entryThumb(r){return(r.imgs&&r.imgs[0])||r.mockImg||'';}
 // folder avatar: custom art → an entry's picture → emoji → auto preview of what's inside
 function libAvatar(r,size){
   size=size||0;var st=size?'width:'+size+'px;height:'+size+'px;flex-shrink:0;':'';
   var fit=r.coverFit||(r.coverFrom?'contain':'cover'),bg=r.color||'#fff';
   var one=function(inner){return'<div class="lib-av'+(fit==='cover'?' fill':'')+'" style="'+st+'background:'+bg+'">'+inner+'</div>';};
   if(r.cover==='__new__'&&RE&&RE.f===r&&RE.coverNew)return one('<img src="'+RE.coverNew+'">');
-  if(isGroup(r)&&r.coverFrom&&S.refs[r.coverFrom]&&_entryThumb(S.refs[r.coverFrom]))return one(imgHTML(_entryThumb(S.refs[r.coverFrom])));
+  if(isGroup(r)&&r.coverFrom&&node(r.coverFrom)&&_entryThumb(node(r.coverFrom)))return one(imgHTML(_entryThumb(node(r.coverFrom))));
   if(isGroup(r)&&r.cover&&r.cover!=='__new__')return one(imgHTML(r.cover));
   if(!isGroup(r)){var k=refThumb(r);if(k)return'<div class="lib-av" style="'+st+'background:#fff">'+imgHTML(k)+'</div>';}
   if(isGroup(r)&&!r.emoji){var th=refEntriesUnder(r.id).map(_entryThumb).filter(Boolean).slice(0,4);
     if(th.length)return'<div class="lib-av mosaic n'+th.length+'" style="'+st+'background:#fff">'+th.map(function(k){return imgHTML(k);}).join('')+'</div>';}
   return'<div class="lib-av" style="'+st+'background:'+(r.color||'var(--paperDark)')+';font-size:'+(size?Math.round(size*0.5):40)+'px">'+esc(r.emoji||(isGroup(r)?'📁':((cat(effCat(r))||{}).icon||'📦')))+'</div>';
 }
-function libCard(r){
-  var sel=LF.sel&&LF.sel[r.id],tap=LF.sel?'libSel(\''+r.id+'\')':(isGroup(r)?'libGo(\''+r.id+'\')':'openRefView(\''+r.id+'\')');
-  if(isGroup(r)){var kids=refKids(r.id),nf=kids.filter(isGroup).length,ne=refEntriesUnder(r.id).length;
-    return'<div class="lib-folder'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+libAvatar(r)+
-      '<div class="lf-name">'+esc(r.name)+'</div><div class="lf-meta">'+(nf?nf+' folder'+(nf>1?'s':'')+' · ':'')+ne+' entr'+(ne===1?'y':'ies')+'</div></div>';}
-  var k=refThumb(r),it=refLinkedItem(r.id),n=it?itemSightings(it.id).length:0;
-  return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+(n?'<div class="ribbon">×'+n+'</div>':'')+
-    '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker&&r.imgs&&r.imgs.length?'data-st':''):'<div class="inv-noimg">'+((cat(effCat(r))||{}).icon||'📦')+'</div>')+'</div>'+
-    '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div>'+(libFlat()?'<div class="inv-meta">'+esc(refPath(r))+'</div>':'')+'</div></div>';
-}
-function libGridHTML(){
-  if(!vals(S.refs).length)return'<div class="empty"><div class="big">📚</div><b>Build your own reference library.</b><br>Make folders as deep as you like — <b>Nike › Dunk Low › colorways</b> — each with its own cover art. Details you set on a folder (brand, line…) are shared by everything inside it.<br><br>Tap <b>＋</b> to start with a folder.</div>';
-  if(libFlat()){var list=refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;});
-    var groups=LF.q.trim()?refDescendants(LF.node).filter(function(g){return isGroup(g)&&g.name.toLowerCase().indexOf(LF.q.toLowerCase().trim())>=0;}):[];
-    if(!list.length&&!groups.length)return'<div class="empty">No matches.</div>';
-    return(groups.length?'<div class="lib-fgrid">'+groups.map(libCard).join('')+'</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(libCard).join('')+'</div>';}
-  var kids=refKids(LF.node),gs=kids.filter(isGroup),es=kids.filter(function(r){return!isGroup(r);});
-  var h='';
-  if(gs.length)h+='<div class="lib-fgrid">'+gs.map(libCard).join('')+'</div>';
-  if(es.length)h+=(gs.length?'<div class="m-lbl" style="margin-top:14px">Entries here</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+es.map(libCard).join('')+'</div>';
-  if(!gs.length&&!es.length)h+='<div class="empty" style="padding:24px">Empty folder. Tap <b>＋</b> to add a sub-folder (e.g. a silhouette) or an entry (e.g. a colorway).</div>';
-  return h;
-}
-function libAddMenu(){
-  var here=LF.node?S.refs[LF.node]:null;
-  var h='<div class="mo-h"><h3>Add to '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
-    '<button class="btn btn-s btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{group:true,parent:LF.node})">📁 New folder <span class="hint">brand, silhouette, line…</span></button>'+
-    '<button class="btn btn-p btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{parent:LF.node})">🏷 New entry <span style="opacity:.7;font-weight:500">a colorway / specific item</span></button>'+
-    '<button class="btn btn-s btn-block" onclick="closeModal(1);libFromItems()">↧ From my spotted items</button>'+
-    '<button class="btn btn-s btn-block" onclick="closeModal(1);openDJImport(\'lib\')">📓 From Decade Journal</button></div>';
-  openModal(h,1);
-}
 function libSel(id){if(LF.sel[id])delete LF.sel[id];else LF.sel[id]=1;render();}
-function libMoveSel(){var ids=Object.keys(LF.sel);openTreePicker({title:'Move '+ids.length+' to…',exclude:ids,onPick:function(dest){ids.forEach(function(id){var r=clone(S.refs[id]);r.parent=dest;put('refs',r);});LF.sel=null;toast('Moved');render();}});}
-function libDeleteSel(){var ids=Object.keys(LF.sel).filter(function(id){return S.refs[id];});if(!confirm('Delete '+ids.length+' selected? Folders\' contents move up a level.'))return;ids.forEach(function(id){refDeleteById(id);});LF.sel=null;render();}
 // pick several spotted items and turn them into library entries in this folder
-var LFI=null;
-function libFromItems(){LFI={sel:{},q:''};rLFI();}
-function rLFI(){
-  var q=LFI.q.toLowerCase(),linked={};vals(S.refs).forEach(function(r){if(!isGroup(r))linked[r.name.toLowerCase()]=1;});
-  var list=vals(S.items).filter(function(i){return!q||i.name.toLowerCase().indexOf(q)>=0;}).sort(function(a,b){return a.name.localeCompare(b.name);});
-  var here=LF.node&&S.refs[LF.node];
-  var h='<div class="mo-h"><h3>Items → 📚 '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
-  h+='<input class="m-in" id="lfi-q" placeholder="Search your items…" value="'+esc(LFI.q)+'" oninput="LFI.q=this.value;debounce(\'lfi\',function(){rLFI();var e=$(\'lfi-q\');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},300)">';
-  h+='<div class="pick-grid" style="margin-top:8px">'+list.map(function(i){var on=LFI.sel[i.id],done=i.ref&&S.refs[i.ref]||linked[i.name.toLowerCase()];
-    return'<div class="pick'+(on?' on':'')+'" style="position:relative;'+(done?'opacity:.4':'')+'" onclick="'+(done?'':'if(LFI.sel[\''+i.id+'\'])delete LFI.sel[\''+i.id+'\'];else LFI.sel[\''+i.id+'\']=1;rLFI()')+'">'+(on?'<div class="selbox" style="background:var(--accent1);color:var(--paper)">✓</div>':'')+
-      (i.img?imgHTML(i.img):'<div class="thumb">'+((cat(i.cat)||{}).icon||'📦')+'</div>')+'<div>'+esc(i.name)+'</div>'+(done?'<div class="hint" style="font-size:9px">in library</div>':'')+'</div>';}).join('')+'</div>';
-  var n=Object.keys(LFI.sel).length;
-  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" '+(n?'':'disabled')+' onclick="itemsToLib(Object.keys(LFI.sel),LF.node);closeModal(1)">Add '+n+' here</button></div>';
-  openModal(h,1);
-}
-function itemsToLib(ids,dest){
-  var n=0;ids.forEach(function(id){var it=S.items[id];if(!it||(it.ref&&S.refs[it.ref]))return;
-    var r=put('refs',{id:'rf_'+gid(),name:it.name.replace(/^❓\s*/,''),parent:dest||'',cat:it.cat,traits:clone(it.traits||{}),imgs:it.img?[it.img]:[],notes:it.notes||'',created:now()});
-    var x=clone(it);x.ref=r.id;put('items',x);n++;});
-  render();toast('📚 Added '+n+' to the library');
-}
 // folder picker (move / choose location / browse in Find)
 var TP=null;
 function openTreePicker(o){TP={o:o,node:o.start||''};rTP();}
-function rTP(){
-  var o=TP.o,node=TP.node?S.refs[TP.node]:null,ex=o.exclude||[];
-  var blocked=function(id){if(ex.indexOf(id)>=0)return true;var r=S.refs[id];return refAncestors(r).some(function(a){return ex.indexOf(a.id)>=0;});};
-  var kids=refKids(TP.node).filter(function(r){return o.browse||isGroup(r);});
-  var h='<div class="mo-h"><h3>'+esc(o.title||'Choose a folder')+'</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
-  h+='<div class="crumbs"><button onclick="TP.node=\'\';rTP()">📚 Library</button>'+(node?refAncestors(node).concat([node]).map(function(c){return'<span>›</span><button onclick="TP.node=\''+c.id+'\';rTP()">'+esc(c.name)+'</button>';}).join(''):'')+'</div>';
-  h+=kids.length?kids.map(function(r){var g=isGroup(r),bl=g&&blocked(r.id);
-    return'<div class="li" style="'+(bl?'opacity:.35':'')+'" onclick="'+(bl?'':g?'TP.node=\''+r.id+'\';rTP()':'closeModal(3);openRefView(\''+r.id+'\','+(o.fromFind?'true':'false')+')')+'">'+libAvatar(r,40)+'<div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+(g?refEntriesUnder(r.id).length+' entries':'entry')+'</div></div>'+(g?'<span>›</span>':'')+'</div>';}).join(''):'<div class="hint" style="padding:10px 0">'+(o.browse?'Empty.':'No sub-folders here.')+'</div>';
-  h+='</div>';
-  if(!o.browse)h+='<div class="mo-f"><button class="btn btn-s" onclick="var n=prompt(\'New folder name:\');if(n){var g=put(\'refs\',{id:\'rf_\'+gid(),group:true,name:n.trim(),parent:TP.node,traits:{},imgs:[],created:now()});TP.node=g.id;rTP();}">＋ New folder here</button><button class="btn btn-p" onclick="var d=TP.node,cb=TP.o.onPick;closeModal(3);cb(d)">Put it '+(node?'in '+esc(node.name):'at top level')+'</button></div>';
-  openModal(h,3);
-}
 // ── view one reference ──
-function openRefView(id,fromFind){
-  var r=S.refs[id];if(!r)return;var it=refLinkedItem(id),ss=it?itemSightings(it.id):[];
-  var imgs=(r.imgs||[]).slice();if(r.mockImg)imgs.push(r.mockImg);
-  if(isGroup(r)){closeModal(1);setTab('lib');return libGo(id);}
-  var h='<div class="mo-h"><h3>'+esc(r.name)+'</h3><button class="icon-btn" onclick="closeModal(2);openRefEditor(\''+id+'\')">✏️</button><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
-  if(r.parent&&S.refs[r.parent])h+='<div class="crumbs" style="margin-top:-6px">'+refAncestors(r).map(function(c,i){return(i?'<span>›</span>':'')+'<button onclick="closeModal(2);closeModal(1);setTab(\'lib\');libGo(\''+c.id+'\')">'+esc(c.name)+'</button>';}).join('')+'</div>';
-  h+=imgs.length?'<div class="ref-car">'+imgs.map(function(k){return imgHTML(k,'','onclick="refZoom(this)"');}).join('')+'</div>':'<div class="empty" style="padding:20px">No pictures yet — tap ✏️ to add some.</div>';
-  if(imgs.length>1)h+='<div class="hint" style="text-align:center">swipe for '+imgs.length+' pictures</div>';
-  var fs=traitSchema(effCat(r)),et=effTraits(r);
-  h+='<div style="margin-top:8px">'+fs.map(function(f){var v=et[f.id];if(!v||!v.length)return'';var mine=F&&fromFind?(F.traits[f.id]||[]):[];
-    return'<div class="row" style="align-items:flex-start;padding:3px 0"><span class="hint" style="width:96px;flex-shrink:0">'+esc(f.name)+'</span><div class="chips" style="flex-wrap:wrap;padding:0">'+v.map(function(x){return'<span class="chip" style="'+(mine.indexOf(x)>=0?'border-color:#16a34a;background:#16a34a22':'')+'">'+(f.type==='color'?'<span style="width:10px;height:10px;border-radius:50%;background:'+_colorHex(x)+';display:inline-block;border:1px solid #8884"></span>':'')+esc(x)+'</span>';}).join('')+'</div></div>';}).join('')+'</div>';
-  if(r.notes)h+='<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap;margin-top:3px">'+esc(r.notes)+'</div></div>';
-  if(r.link)h+='<a class="hint" href="'+esc(r.link)+'" target="_blank" rel="noopener">🔗 '+esc(r.link.slice(0,60))+'</a>';
-  h+='<div class="hint" style="margin-top:8px">'+(it?'Spotted '+ss.length+'×'+(ss[0]?' · last '+fmtDate(ss[0].date):''):'Not spotted yet')+'</div>';
-  h+='</div><div class="mo-f">'+(it?'<button class="btn btn-s" onclick="closeModal(2);closeModal(1);openItemModal(\''+it.id+'\')">Open item</button>':'')+
-    '<button class="btn btn-p" onclick="refPicked(\''+id+'\')">'+(fromFind?'✓ This is it':'📍 Spotted it')+'</button></div>';
-  openModal(h,2);
-}
 function refZoom(el){var d=document.createElement('div');d.className='mo-ov';d.style.zIndex=2500;d.style.alignItems='center';d.style.background='rgba(0,0,0,.92)';d.innerHTML='<img src="'+el.src+'" style="max-width:100vw;max-height:100vh;object-fit:contain">';d.onclick=function(){d.remove();};document.body.appendChild(d);}
 
 // ── add / edit a reference ──
 var RE=null;
 function openRefEditor(id,o){
   o=o||{};
+  if(id&&S.items[id])return openItemModal(id);
+  if(!id&&!o.group)return openItemModal(null,{parent:o.parent,cat:o.cat,traits:o.traits,notes:o.notes,photo:o.photo,logFirst:false});
   if(id&&S.refs[id])RE={f:clone(S.refs[id]),isNew:false,add:[]};
   else{var par=o.parent!=null?o.parent:(L.tab==='lib'?LF.node:'');var pc=par&&S.refs[par]?effCat(S.refs[par]):'';
     RE={f:{id:'rf_'+gid(),name:o.name||'',group:!!o.group,parent:par||'',cat:o.cat||pc||(o.group?'':(catList()[0]||{}).id||''),traits:o.traits||{},imgs:[],notes:o.notes||'',link:'',mock:o.mock||null,created:now()},isNew:true,add:[],fromFind:o.fromFind};}
@@ -2838,7 +2854,7 @@ function rRef(){
 function refSave(){
   _reCap();var f=RE.f;if(!f.name.trim()){toast('Give it a name');var n=$('re-name');if(n)n.focus();return;}
   f.name=f.name.trim();
-  var tasks=RE.add.map(function(d){return resizeData(d,900,'webp',0.86).then(function(x){f.imgs.push(imgSave(x));});});
+  var tasks=RE.add.map(function(d){return tidyMaybe(d).then(function(t){return resizeData(t,900,'webp',0.86);}).then(function(x){f.imgs.push(imgSave(x));});});
   var oldCover=RE.isNew?'':(S.refs[f.id]||{}).cover||'';
   if(f.cover==='__new__'&&RE.coverNew){f.cover=imgSave(RE.coverNew);}else if(f.cover==='__new__')f.cover=oldCover;
   if(oldCover&&oldCover!==f.cover&&!_imgInUse(oldCover,f.id))fbDeleteImage(oldCover);
@@ -2854,38 +2870,14 @@ function refDelete(){var f=RE.f;
   if(!confirm(f.group?'Delete folder "'+f.name+'"? Everything inside moves up a level (nothing else is deleted).':'Delete "'+f.name+'" from your library? (Spotted items stay.)'))return;
   refDeleteById(f.id);RE=null;closeModal(2);if(LF.node===f.id)LF.node=f.parent||'';render();}
 function refDeleteById(id){var f=S.refs[id];if(!f)return;
-  refKids(id).forEach(function(k){var x=clone(k);x.parent=f.parent||'';put('refs',x);});
+  refKids(id).forEach(function(k){var x=clone(k);x.parent=f.parent||'';put(S.refs[k.id]?'refs':'items',x);});
   (f.imgs||[]).forEach(function(k){if(!vals(S.items).some(function(i){return i.img===k;}))fbDeleteImage(k);});if(f.mockImg)fbDeleteImage(f.mockImg);if(f.cover&&!_imgInUse(f.cover,f.id))fbDeleteImage(f.cover);
   vals(S.items).forEach(function(i){if(i.ref===f.id){var x=clone(i);delete x.ref;put('items',x);}});
   del('refs',id);}
 
 // ── 🃏 study: flashcards from your library ──
 var ST=null;
-function openStudy(){var pool=(libFlat()?refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;}):refEntriesUnder(LF.node)).filter(function(r){return!isGroup(r)&&refThumb(r);});
-  if(pool.length<2)return toast('Add at least 2 references with pictures');ST={pool:shuffle(pool),i:0,show:false,right:0,seen:0};rStudy();}
-function rStudy(){
-  var r=ST.pool[ST.i%ST.pool.length],imgs=(r.imgs||[]).concat(r.mockImg?[r.mockImg]:[]),k=imgs[Math.floor(Math.random()*imgs.length)];
-  var h='<div class="mo-h"><h3>🃏 Study · '+(ST.i+1)+'/'+ST.pool.length+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">'+
-    '<div class="studio-prev white" style="min-height:240px">'+imgHTML(k)+'</div>';
-  if(ST.show){h+='<div style="font-size:18px;font-weight:700;margin-top:10px;text-align:center">'+esc(r.name)+'</div><div class="hint" style="text-align:center">'+esc(traitSummary(r.traits))+'</div>'+(r.notes?'<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap">'+esc(r.notes)+'</div></div>':'');}
-  else h+='<div class="hint" style="text-align:center;margin-top:10px">What is it? Say it in your head, then reveal.</div>';
-  h+='</div><div class="mo-f">'+(ST.show?'<button class="btn btn-s" onclick="ST.seen++;ST.i++;ST.show=false;rStudy()">✗ Missed</button><button class="btn btn-p" onclick="ST.seen++;ST.right++;ST.i++;ST.show=false;rStudy()">✓ Got it</button>':'<button class="btn btn-p" onclick="ST.show=true;rStudy()">Reveal</button>')+'</div>';
-  if(ST.seen)h=h.replace('🃏 Study','🃏 '+ST.right+'/'+ST.seen);
-  openModal(h,1);
-}
 // ── ⚖️ compare side by side ──
-function openCompare(){
-  var rs=Object.keys(LF.sel||{}).map(function(id){return S.refs[id];}).filter(function(r){return r&&!isGroup(r);});if(rs.length<2)return;
-  var fs=traitSchema(effCat(rs[0])),n=rs.length;
-  var col='grid-template-columns:repeat('+n+',minmax(0,1fr))';
-  var h='<div class="mo-h"><h3>⚖️ Compare</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
-  h+='<div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){var k=refThumb(r);return'<div style="text-align:center">'+(k?imgHTML(k,'','style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:8px" onclick="refZoom(this)"'):'')+'<div style="font-size:12px;font-weight:700;margin-top:3px">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
-  fs.forEach(function(f){var vs=rs.map(function(r){return(effTraits(r)[f.id]||[]).join(', ');});if(!vs.some(Boolean))return;var diff=vs.some(function(v){return v!==vs[0];});
-    h+='<div class="m-lbl">'+esc(f.name)+(diff?' <span class="r" style="color:#d97706">differs</span>':'')+'</div><div style="display:grid;'+col+';gap:6px">'+vs.map(function(v){return'<div style="font-size:12px;'+(diff?'font-weight:700':'color:var(--inkFaint)')+'">'+esc(v||'—')+'</div>';}).join('')+'</div>';});
-  h+='<div class="m-lbl">👀 Tells</div><div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){return'<div style="font-size:12px;white-space:pre-wrap">'+esc(r.notes||'—')+'</div>';}).join('')+'</div>';
-  h+='</div>';openModal(h,1);
-}
-
 // ════════════ 👟 SHOE MOCKUP BUILDER ════════════
 var SHOE_PARTS=[['upper','Upper'],['toe','Toe cap'],['eyestay','Eyestay'],['heel','Heel'],['collar','Collar'],['tongue','Tongue'],['logo','Logo'],['laces','Laces'],['midsole','Midsole'],['outsole','Outsole'],['strap','Strap'],['air','Air window']];
 function shoeDefault(){return{cut:'low',sole:'normal',logo:'curve',strap:false,air:false,speckle:false,perf:false,overlay:true,
@@ -2956,13 +2948,507 @@ function coverMode(m){var f=RE.f;RE.cm=m;if(m==='auto'){f.cover='';f.coverFrom='
   else if(m==='img'){f.coverFrom='';f.emoji='';if(!f.cover){f.cover='';rRef();return pickPhoto('gal',function(d){resizeData(d,600,'webp',0.88).then(function(r){RE.coverNew=r;RE.f.cover='__new__';rRef();});});}}
   else if(m==='emoji'){f.cover='';f.coverFrom='';RE.coverNew=null;if(!f.emoji)f.emoji='📁';}
   rRef();}
-function coverPickEntry(){
-  var ents=RE.isNew?[]:refEntriesUnder(RE.f.id).filter(function(r){return _entryThumb(r);});
-  if(!ents.length)return toast(RE.isNew?'Save the folder and add entries first':'No entries with pictures inside yet');
-  var h='<div class="mo-h"><h3>Cover from…</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b"><div class="pick-grid">'+
-    ents.map(function(r){return'<div class="pick'+(RE.f.coverFrom===r.id?' on':'')+'" onclick="RE.f.coverFrom=\''+r.id+'\';RE.f.cover=\'\';RE.f.emoji=\'\';closeModal(3);rRef()">'+imgHTML(_entryThumb(r))+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div></div>';
+// ════════════ ✨ TIDY ALL — run the tidy step over every item + library picture ════════════
+var TA=null;
+function openTidyAll(){TA={scope:'all',running:false,done:0,changed:0,skipped:0,total:0,stop:false};rTA();}
+function rTA(){
+  var tg=tidyTargets(TA.scope),n=Object.keys(tg).length;
+  var h='<div class="mo-h"><h3>✨ Tidy pictures</h3><button class="icon-btn" onclick="if(TA)TA.stop=true;closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint">Turns light-grey backgrounds pure white and trims the empty space around each item to the same margin, so everything looks the same size. Photos with busy backgrounds are skipped. New stickers are made afterwards.</div>';
+  if(!TA.running&&!TA.finished){
+    h+='<div class="seg" style="margin-top:10px">'+[['all','Everything'],['lib','Library only'],['items','Items only']].map(function(o){return'<button class="'+(TA.scope===o[0]?'on':'')+'" onclick="TA.scope=\''+o[0]+'\';rTA()">'+o[1]+'</button>';}).join('')+'</div>';
+    h+='<div style="margin-top:10px;font-weight:700">'+n+' picture'+(n===1?'':'s')+'</div>';
+  }else{
+    var pct=TA.total?Math.round(TA.done/TA.total*100):0;
+    h+='<div style="margin-top:12px;height:10px;border-radius:6px;background:var(--paperGrid);overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--accent1)"></div></div>';
+    h+='<div style="margin-top:6px;font-size:13px">'+TA.done+' / '+TA.total+' · <b>'+TA.changed+' tidied</b> · '+TA.skipped+' left as is'+(TA.finished?' · ✅ done':'')+'</div>';
+    if(TA.running)h+='<div class="hint">Keep the app open — it uses the pictures already on this phone (and downloads any that aren\'t).</div>';
+  }
+  h+='</div><div class="mo-f">'+(TA.running?'<button class="btn btn-s" onclick="TA.stop=true">Stop</button>':TA.finished?'<button class="btn btn-p" onclick="closeModal(1);render()">Done</button>':'<button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" '+(n?'':'disabled')+' onclick="tidyRun()">✨ Tidy '+n+'</button>')+'</div>';
+  openModal(h,1);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ONE INVENTORY
+//  Every thing you know about is an ITEM (S.items). The 📚 Library tab files items into a
+//  brand/type folder tree (folders live in S.refs with group:true; item.parent = folder id).
+//  The 🏷️ Items tab groups the same items into your own folders (S.folders, e.g. "Chicago Trip").
+//  Sightings always point at an item, so spotting something files it in the library too.
+// ════════════════════════════════════════════════════════════════
+function node(id){return S.refs[id]||S.items[id]||null;}
+function itemThumb(it){return it?(it.img||(it.imgs||[])[0]||it.mockImg||''):'';}
+function itemAllImgs(it){var a=[];if(it.img)a.push(it.img);(it.imgs||[]).forEach(function(k){if(k&&a.indexOf(k)<0)a.push(k);});if(it.mockImg&&a.indexOf(it.mockImg)<0)a.push(it.mockImg);return a;}
+// tree: folders (refs) + items share the same parent field
+function refKids(pid){
+  pid=pid||'';
+  var gs=vals(S.refs).filter(function(r){return isGroup(r)&&(r.parent||'')===pid;});
+  var es=vals(S.items).filter(function(i){var p=i.parent||'';if(p&&!S.refs[p])p='';return p===pid;});
+  return gs.sort(function(a,b){return((a.order||0)-(b.order||0))||a.name.localeCompare(b.name);}).concat(es.sort(function(a,b){return a.name.localeCompare(b.name);}));
+}
+function refThumb(r){return isGroup(r)?(r.cover||''):itemThumb(r);}
+function _entryThumb(r){return itemThumb(r);}
+function refLinkedItem(id){return S.items[id]||null;}
+function refMatches(sel,catId,q,within){
+  q=(q||'').toLowerCase().trim();var any=Object.keys(sel).some(function(k){return(sel[k]||[]).length;});
+  var pool=within?refEntriesUnder(within):vals(S.items);
+  return pool.map(function(r){return{r:r,s:refScore(r,sel,catId)};}).filter(function(x){
+    if(x.s<0)return false;if(q&&(x.r.name+' '+refPath(x.r)+' '+(x.r.notes||'')+' '+traitSummary(effTraits(x.r))).toLowerCase().indexOf(q)<0)return false;return !any||x.s>0;})
+    .sort(function(a,b){return b.s-a.s||a.r.name.localeCompare(b.r.name);});
+}
+function _imgInUse(k,exceptId){if(!k)return false;
+  return vals(S.items).some(function(i){return i.id!==exceptId&&(i.img===k||i.orig===k||i.mockImg===k||(i.imgs||[]).indexOf(k)>=0);})||
+    vals(S.refs).some(function(r){return r.id!==exceptId&&r.cover===k;})||vals(S.sightings).some(function(s){return s.photo===k;})||
+    vals(S.tray||{}).some(function(t){if(t.id===exceptId)return false;var d=t.draft||t;return d.img===k||d.orig===k||d.mockImg===k||(d.imgs||[]).indexOf(k)>=0;});}
+
+// ── one-time merge of old library entries (S.refs non-folders) into items ──
+function migrateLibrary(){
+  var idmap={},n=0;
+  vals(S.refs).forEach(function(r){
+    if(isGroup(r))return;
+    var linked=vals(S.items).find(function(i){return i.ref===r.id;});
+    var all=function(it){var a=[];[it.img].concat(it.imgs||[],r.imgs||[]).forEach(function(k){if(k&&a.indexOf(k)<0)a.push(k);});return a;};
+    if(linked){
+      var it=clone(linked),imgs=all(it);it.img=it.img||imgs[0]||'';it.imgs=imgs.filter(function(k){return k!==it.img;});
+      it.parent=it.parent||r.parent||'';it.traits=it.traits||{};Object.keys(r.traits||{}).forEach(function(k){(r.traits[k]||[]).forEach(function(v){var a=it.traits[k]=it.traits[k]||[];if(a.indexOf(v)<0)a.push(v);});});
+      if(r.notes&&(it.notes||'').indexOf(r.notes)<0)it.notes=(it.notes?it.notes+'\n':'')+r.notes;
+      ['mock','mockImg','link'].forEach(function(k){if(r[k]&&!it[k])it[k]=r[k];});if(r.djId&&!it.djLibId)it.djLibId=r.djId;
+      delete it.ref;put('items',it);idmap[r.id]=it.id;
+    }else if(!S.items[r.id]){
+      var im=(r.imgs||[]).slice();
+      put('items',{id:r.id,name:r.name,cat:r.cat||effCat(r)||'',parent:r.parent||'',img:im[0]||'',imgs:im.slice(1),traits:clone(r.traits||{}),notes:r.notes||'',mock:r.mock||null,mockImg:r.mockImg||'',link:r.link||'',djLibId:r.djId||'',folders:[],created:r.created||now()});
+      idmap[r.id]=r.id;
+    }
+    del('refs',r.id);n++;
+  });
+  vals(S.refs).forEach(function(g){if(g.coverFrom&&idmap[g.coverFrom]&&idmap[g.coverFrom]!==g.coverFrom){var x=clone(g);x.coverFrom=idmap[g.coverFrom];put('refs',x);}});
+  vals(S.items).forEach(function(i){if(i.ref!==undefined){var x=clone(i);delete x.ref;put('items',x);}});
+  if(n)console.log('Merged',n,'library entries into items');
+}
+
+// ── library cards / grid over items ──
+function libCard(r){
+  var sel=LF.sel&&LF.sel[r.id],tap=LF.sel?'libSel(\''+r.id+'\')':(isGroup(r)?'libGo(\''+r.id+'\')':'openItemView(\''+r.id+'\')');
+  if(isGroup(r)){var kids=refKids(r.id),nf=kids.filter(isGroup).length,ne=refEntriesUnder(r.id).length;
+    return'<div class="lib-folder'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+libAvatar(r)+
+      '<div class="lf-name">'+esc(r.name)+'</div><div class="lf-meta">'+(nf?nf+' folder'+(nf>1?'s':'')+' · ':'')+ne+' item'+(ne===1?'':'s')+'</div></div>';}
+  var k=itemThumb(r),n=itemSightings(r.id).length;
+  return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+(n?'<div class="ribbon">×'+n+'</div>':'')+
+    '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+((cat(effCat(r))||{}).icon||'📦')+'</div>')+'</div>'+
+    '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div>'+(libFlat()?'<div class="inv-meta">'+esc(refPath(r))+'</div>':'')+
+    ((L.libSort==='first'||L.libSort==='last')?(function(){var x=_spotRange(r);return'<div class="inv-meta">'+(x&&x.first?'📅 '+fmtDate(L.libSort==='first'?x.first:x.last):'never spotted')+'</div>';})():'')+'</div></div>';
+}
+// library sort: A–Z · recently spotted · earliest spotted · most spotted · recently added (never-spotted always last for date sorts)
+function _spotRange(it){var ss=sightIndex().by[it.id]||[];if(!ss.length)return null;var ds=ss.map(function(s){return s.date||'';}).filter(Boolean).sort();return ds.length?{first:ds[0],last:ds[ds.length-1],n:ss.length}:{first:'',last:'',n:ss.length};}
+function _groupRange(g){var r=null;refEntriesUnder(g.id).forEach(function(i){var x=_spotRange(i);if(!x||!x.first)return;if(!r)r={first:x.first,last:x.last,n:x.n};else{if(x.first<r.first)r.first=x.first;if(x.last>r.last)r.last=x.last;r.n+=x.n;}});return r;}
+// library show filter: all · spotted · never spotted (grails) · pending ID (❓ mysteries)
+function libPending(i){return!!(i.mystery||(i.name||'').indexOf('❓')===0);}
+function libShowOk(i,m){m=m||L.libShow||'all';if(m==='all')return true;var n=(sightIndex().by[i.id]||[]).length;
+  if(m==='spotted')return n>0;if(m==='grail')return n===0&&!libPending(i);if(m==='pending')return libPending(i);return true;}
+function libShowList(list){if((L.libShow||'all')==='all')return list;return list.filter(function(r){return isGroup(r)?refEntriesUnder(r.id).some(function(i){return libShowOk(i);}):libShowOk(r);});}
+function libSortList(list){list=libShowList(list);
+  var m=L.libSort||'name';if(m==='name')return list;
+  var rng=function(r){return isGroup(r)?_groupRange(r):_spotRange(r);};
+  var dec=list.map(function(r){return{r:r,x:rng(r)};});
+  dec.sort(function(a,b){
+    if(m==='added')return(b.r.created||0)-(a.r.created||0);
+    var ax=a.x&&(m==='most'?a.x.n:m==='first'?a.x.first:a.x.last),bx=b.x&&(m==='most'?b.x.n:m==='first'?b.x.first:b.x.last);
+    if(!ax&&!bx)return a.r.name.localeCompare(b.r.name);if(!ax)return 1;if(!bx)return -1;
+    if(m==='most')return bx-ax;if(m==='first')return ax<bx?-1:ax>bx?1:0;return ax<bx?1:ax>bx?-1:0;});
+  return dec.map(function(d){return d.r;});
+}
+function libGridHTML(){
+  if(!vals(S.refs).length&&!vals(S.items).length)return'<div class="empty"><div class="big">📚</div><b>Your library files everything you know by brand and type.</b><br>Make folders as deep as you like — <b>Nike › Dunk Low › colorways</b> — each with its own cover art. Details set on a folder (brand, line…) are shared by everything inside.<br><br>Tap <b>＋</b> to start with a folder.</div>';
+  if(libFlat()){var list=refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;});
+    var groups=LF.q.trim()?refDescendants(LF.node).filter(function(g){return isGroup(g)&&g.name.toLowerCase().indexOf(LF.q.toLowerCase().trim())>=0;}):[];
+    list=libSortList(list);groups=libSortList(groups);
+    if(!list.length&&!groups.length)return'<div class="empty">No matches.</div>';
+    return(groups.length?'<div class="lib-fgrid">'+groups.map(libCard).join('')+'</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+list.map(libCard).join('')+'</div>';}
+  var kids=refKids(LF.node),gs=libSortList(kids.filter(isGroup)),es=libSortList(kids.filter(function(r){return!isGroup(r);}));
+  var h='';
+  if(gs.length)h+='<div class="lib-fgrid">'+gs.map(libCard).join('')+'</div>';
+  if(es.length)h+=(gs.length||!LF.node?'<div class="m-lbl" style="margin-top:14px">'+(LF.node?'Items here':'📥 Not filed in a folder yet <span class="r">'+es.length+'</span>')+'</div>':'')+'<div class="inv-grid'+(L.sticker?' sticker':'')+'">'+es.map(libCard).join('')+'</div>';
+  if(!gs.length&&!es.length&&(L.libShow||'all')!=='all')h+='<div class="empty" style="padding:24px">Nothing here matches this filter. <button class="btn btn-g btn-sm" onclick="L.libShow=\'all\';svL();render()">Show all</button></div>';
+  else if(!gs.length&&!es.length)h+='<div class="empty" style="padding:24px">Empty folder. Tap <b>＋</b> to add a sub-folder (e.g. a silhouette) or an item (e.g. a colorway).</div>';
+  return h;
+}
+function libAddMenu(){
+  var here=LF.node?S.refs[LF.node]:null;
+  var h='<div class="mo-h"><h3>Add to '+(here?esc(here.name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<button class="btn btn-s btn-block" style="padding:14px" onclick="closeModal(1);openRefEditor(null,{group:true,parent:LF.node})">📁 New folder <span class="hint">brand, silhouette, line…</span></button>'+
+    '<button class="btn btn-p btn-block" style="padding:14px" onclick="closeModal(1);openItemModal(null,{parent:LF.node,logFirst:false})">🏷 New item <span style="opacity:.7;font-weight:500">reference — not spotted yet</span></button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);libFromItems()">↧ File items in here</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(1);openDJImport(\'lib\')">📓 From Decade Journal</button></div>';
+  openModal(h,1);
+}
+function libMoveSel(){var ids=Object.keys(LF.sel);openTreePicker({title:'Move '+ids.length+' to…',exclude:ids,onPick:function(dest){ids.forEach(function(id){var r=node(id);if(!r)return;var x=clone(r);x.parent=dest;put(S.refs[id]?'refs':'items',x);});LF.sel=null;toast('Moved');render();}});}
+function libDeleteSel(){var ids=Object.keys(LF.sel).filter(function(id){return node(id);});var ni=ids.filter(function(id){return S.items[id];}).length;
+  if(!confirm('Delete '+ids.length+' selected?'+(ni?'\n'+ni+' item(s) and their sightings will be deleted.':'')+' Folders\' contents move up a level.'))return;
+  ids.forEach(function(id){if(S.refs[id])refDeleteById(id);else deleteItemById(id);});LF.sel=null;render();}
+// file existing items into this folder
+var LFI=null;
+function libFromItems(){LFI={sel:{},q:''};rLFI();}
+function rLFI(){
+  var q=LFI.q.toLowerCase(),here=LF.node,inHere={};if(here)refEntriesUnder(here).forEach(function(i){inHere[i.id]=1;});
+  var list=vals(S.items).filter(function(i){return!inHere[i.id]&&(!q||i.name.toLowerCase().indexOf(q)>=0);}).sort(function(a,b){return(!!(a.parent&&S.refs[a.parent])-!!(b.parent&&S.refs[b.parent]))||a.name.localeCompare(b.name);});
+  var h='<div class="mo-h"><h3>File into 📚 '+(here?esc(S.refs[here].name):'Library')+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<input class="m-in" id="lfi-q" placeholder="Search your items…" value="'+esc(LFI.q)+'" oninput="LFI.q=this.value;debounce(\'lfi\',function(){rLFI();var e=$(\'lfi-q\');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},300)">';
+  h+='<div class="hint" style="margin-top:4px">Unfiled items first. Items already in another folder show where they are now.</div>';
+  h+='<div class="pick-grid" style="margin-top:8px">'+list.map(function(i){var on=LFI.sel[i.id],where=i.parent&&S.refs[i.parent]?S.refs[i.parent].name:'';
+    return'<div class="pick'+(on?' on':'')+'" style="position:relative" onclick="if(LFI.sel[\''+i.id+'\'])delete LFI.sel[\''+i.id+'\'];else LFI.sel[\''+i.id+'\']=1;rLFI()">'+(on?'<div class="selbox" style="background:var(--accent1);color:var(--paper)">✓</div>':'')+
+      (itemThumb(i)?imgHTML(itemThumb(i)):'<div class="thumb">'+((cat(i.cat)||{}).icon||'📦')+'</div>')+'<div>'+esc(i.name)+'</div>'+(where?'<div class="hint" style="font-size:9px">in '+esc(where)+'</div>':'')+'</div>';}).join('')+'</div>';
+  var n=Object.keys(LFI.sel).length;
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(1)">Cancel</button><button class="btn btn-p" '+(n?'':'disabled')+' onclick="itemsToLib(Object.keys(LFI.sel),LF.node);closeModal(1)">File '+n+' here</button></div>';
+  openModal(h,1);
+}
+function itemsToLib(ids,dest){var n=0;ids.forEach(function(id){var it=S.items[id];if(!it)return;var x=clone(it);x.parent=dest||'';put('items',x);n++;});render();toast('📚 Filed '+n);}
+function selToLib(){var ids=selIds();openTreePicker({title:'File '+ids.length+' in…',onPick:function(d){itemsToLib(ids,d);SEL=null;render();}});}
+// tree picker shows items too when browsing
+function rTP(){
+  var o=TP.o,nd=TP.node?S.refs[TP.node]:null,ex=o.exclude||[];
+  var blocked=function(id){if(ex.indexOf(id)>=0)return true;var r=S.refs[id];return refAncestors(r).some(function(a){return ex.indexOf(a.id)>=0;});};
+  var kids=refKids(TP.node).filter(function(r){return o.browse||isGroup(r);});
+  var h='<div class="mo-h"><h3>'+esc(o.title||'Choose a folder')+'</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">';
+  h+='<div class="crumbs"><button onclick="TP.node=\'\';rTP()">📚 Library</button>'+(nd?refAncestors(nd).concat([nd]).map(function(c){return'<span>›</span><button onclick="TP.node=\''+c.id+'\';rTP()">'+esc(c.name)+'</button>';}).join(''):'')+'</div>';
+  h+=kids.length?kids.map(function(r){var g=isGroup(r),bl=g&&blocked(r.id);
+    return'<div class="li" style="'+(bl?'opacity:.35':'')+'" onclick="'+(bl?'':g?'TP.node=\''+r.id+'\';rTP()':'closeModal(3);openItemView(\''+r.id+'\',{level:2,fromFind:'+(o.fromFind?'true':'false')+'})')+'">'+libAvatar(r,40)+'<div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+(g?refEntriesUnder(r.id).length+' items':'item')+'</div></div>'+(g?'<span>›</span>':'')+'</div>';}).join(''):'<div class="hint" style="padding:10px 0">'+(o.browse?'Empty.':'No sub-folders here.')+'</div>';
+  h+='</div>';
+  if(!o.browse)h+='<div class="mo-f"><button class="btn btn-s" onclick="var n=prompt(\'New folder name:\');if(n){var g=put(\'refs\',{id:\'rf_\'+gid(),group:true,name:n.trim(),parent:TP.node,traits:{},imgs:[],created:now()});TP.node=g.id;rTP();}">＋ New folder here</button><button class="btn btn-p" onclick="var d=TP.node,cb=TP.o.onPick;closeModal(3);cb(d)">Put it '+(nd?'in '+esc(nd.name):'at top level')+'</button></div>';
   openModal(h,3);
 }
+// old entry points → items
+function openRefView(id,fromFind){if(S.refs[id]&&isGroup(S.refs[id])){closeModal(1);setTab('lib');return libGo(id);}openItemView(id,{level:2,fromFind:fromFind});}
+var _openRefEditorGroup=null;
+function refPicked(id){
+  var it=S.items[id];if(!it)return;
+  var date=F?F.date:tod(),place=F?F.place:'';
+  closeModal(3);closeModal(2);closeModal(1);
+  if(F&&F.itemId&&S.items[F.itemId]&&F.itemId!==id){// merge the ❓ mystery into the real item
+    var m=S.items[F.itemId],x=clone(it);
+    itemSightings(m.id).forEach(function(s){var s2=clone(s);s2.item=id;put('sightings',s2);});
+    vals(S.stamps).forEach(function(st){if(st.item===m.id){var t=clone(st);t.item=id;put('stamps',t);}});
+    if(m.img&&itemAllImgs(x).indexOf(m.img)<0){x.imgs=(x.imgs||[]).concat([m.img]);}
+    (m.folders||[]).forEach(function(f){x.folders=x.folders||[];if(x.folders.indexOf(f)<0)x.folders.push(f);});
+    put('items',x);var mm=clone(m);mm.img='';mm.orig='';put('items',mm);del('items',m.id);
+    F=null;render();toast('❓ → '+it.name);return openItemView(id);
+  }
+  if(F&&F.itemId===id){var y=clone(it);y.mystery=false;put('items',y);F=null;render();return openItemView(id);}
+  addSighting({item:id,date:date,place:place});if(place){L.lastPlace=place;L.lastPlaceDay=tod();svL();}
+  F=null;render();toast('✅ Spotted: '+it.name);openItemView(id);
+}
+function fToRef(){var f=F;closeModal(1);openItemModal(null,{cat:f.cat,traits:clone(f.traits),notes:f.notes,photo:f.photo,place:f.place,date:f.date,mock:f.mock});}
+function findMatchHTML(){
+  var m=refMatches(F.traits,F.cat,F.q);
+  if(!vals(S.items).length)return'<div class="hint">Nothing in your inventory yet.</div>';
+  if(!m.length)return'<div class="hint">Nothing matches all of that. Fold a section or untick a detail.</div>';
+  return'<div class="pick-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">'+m.slice(0,60).map(function(x){var r=x.r,k=itemThumb(r);
+    return'<div class="pick" onclick="openItemView(\''+r.id+'\',{level:2,fromFind:true})">'+(k?imgHTML(k,'','style="height:76px;background:#fff"'):'<div class="thumb" style="height:76px">'+((cat(r.cat)||{}).icon||'📦')+'</div>')+'<div style="white-space:normal;height:2.4em;line-height:1.2em;overflow:hidden">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
+}
+function openStudy(){var pool=(libFlat()?refMatches(LF.traits,LF.cat==='all'?'':LF.cat,LF.q,LF.node).map(function(x){return x.r;}):refEntriesUnder(LF.node)).filter(function(r){return itemThumb(r);});
+  if(pool.length<2)return toast('Need at least 2 items with pictures here');ST={pool:shuffle(pool),i:0,show:false,right:0,seen:0};rStudy();}
+function rStudy(){
+  var r=ST.pool[ST.i%ST.pool.length],imgs=itemAllImgs(r),k=imgs[Math.floor(Math.random()*imgs.length)];
+  var h='<div class="mo-h"><h3>🃏 '+(ST.seen?ST.right+'/'+ST.seen:'Study')+' · '+(ST.i+1)+'/'+ST.pool.length+'</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">'+
+    '<div class="studio-prev white" style="min-height:240px">'+imgHTML(k)+'</div>';
+  if(ST.show){h+='<div style="font-size:18px;font-weight:700;margin-top:10px;text-align:center">'+esc(r.name)+'</div><div class="hint" style="text-align:center">'+esc(refPath(r))+'</div>'+(r.notes?'<div class="sec"><b>👀 Tells</b><div style="font-size:13px;white-space:pre-wrap">'+esc(r.notes)+'</div></div>':'');}
+  else h+='<div class="hint" style="text-align:center;margin-top:10px">What is it? Say it in your head, then reveal.</div>';
+  h+='</div><div class="mo-f">'+(ST.show?'<button class="btn btn-s" onclick="ST.seen++;ST.i++;ST.show=false;rStudy()">✗ Missed</button><button class="btn btn-p" onclick="ST.seen++;ST.right++;ST.i++;ST.show=false;rStudy()">✓ Got it</button>':'<button class="btn btn-p" onclick="ST.show=true;rStudy()">Reveal</button>')+'</div>';
+  openModal(h,1);
+}
+function openCompare(){
+  var rs=Object.keys(LF.sel||{}).map(function(id){return S.items[id];}).filter(Boolean);if(rs.length<2)return;
+  var fs=traitSchema(effCat(rs[0])),n=rs.length,col='grid-template-columns:repeat('+n+',minmax(0,1fr))';
+  var h='<div class="mo-h"><h3>⚖️ Compare</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){var k=itemThumb(r);return'<div style="text-align:center">'+(k?imgHTML(k,'','style="width:100%;height:110px;object-fit:contain;background:#fff;border-radius:8px" onclick="refZoom(this)"'):'')+'<div style="font-size:12px;font-weight:700;margin-top:3px">'+esc(r.name)+'</div></div>';}).join('')+'</div>';
+  fs.forEach(function(f){var vs=rs.map(function(r){return(effTraits(r)[f.id]||[]).join(', ');});if(!vs.some(Boolean))return;var diff=vs.some(function(v){return v!==vs[0];});
+    h+='<div class="m-lbl">'+esc(f.name)+(diff?' <span class="r" style="color:#d97706">differs</span>':'')+'</div><div style="display:grid;'+col+';gap:6px">'+vs.map(function(v){return'<div style="font-size:12px;'+(diff?'font-weight:700':'color:var(--inkFaint)')+'">'+esc(v||'—')+'</div>';}).join('')+'</div>';});
+  h+='<div class="m-lbl">👀 Tells</div><div style="display:grid;'+col+';gap:6px">'+rs.map(function(r){return'<div style="font-size:12px;white-space:pre-wrap">'+esc(r.notes||'—')+'</div>';}).join('')+'</div></div>';
+  openModal(h,1);
+}
+function coverPickEntry(){
+  var ents=RE.isNew?[]:refEntriesUnder(RE.f.id).filter(function(r){return itemThumb(r);});
+  if(!ents.length)return toast(RE.isNew?'Save the folder and add items first':'No items with pictures inside yet');
+  var h='<div class="mo-h"><h3>Cover from…</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b"><div class="pick-grid">'+
+    ents.map(function(r){return'<div class="pick'+(RE.f.coverFrom===r.id?' on':'')+'" onclick="RE.f.coverFrom=\''+r.id+'\';RE.f.cover=\'\';RE.f.emoji=\'\';closeModal(3);rRef()">'+imgHTML(itemThumb(r))+'<div>'+esc(r.name)+'</div></div>';}).join('')+'</div></div>';
+  openModal(h,3);
+}
+function tidyTargets(scope){
+  var m={};var add=function(k,w){if(!k||k==='__new__')return;(m[k]=m[k]||[]).push(w);};
+  var inLib=function(i){return i.parent&&S.refs[i.parent];};
+  vals(S.items).forEach(function(it){if(scope==='lib'&&!inLib(it))return;if(scope==='items'&&inLib(it))return;
+    add(it.img,{t:'item',id:it.id});(it.imgs||[]).forEach(function(k){add(k,{t:'itemx',id:it.id});});});
+  if(scope!=='items')vals(S.refs).forEach(function(r){if(r.cover)add(r.cover,{t:'cover',id:r.id});});
+  return m;
+}
+function tidyRun(){
+  var tg=tidyTargets(TA.scope),keys=Object.keys(tg);TA.running=true;TA.total=keys.length;TA.done=0;rTA();
+  var refUpd={},itemUpd={};
+  var flush=function(){Object.keys(refUpd).forEach(function(id){put('refs',refUpd[id]);});Object.keys(itemUpd).forEach(function(id){put('items',itemUpd[id]);});refUpd={};itemUpd={};};
+  var next=function(){
+    if(TA.stop||!keys.length){flush();TA.running=false;TA.finished=true;rTA();render();return;}
+    var k=keys.shift();
+    imgGet(k,function(src){
+      if(!src){TA.skipped++;TA.done++;return setTimeout(next,10);}
+      tidyImage(src).then(function(r){
+        if(!r.changed){TA.skipped++;return;}
+        return resizeData(r.data,900,'webp',0.88).then(function(out){
+          var nk=imgSave(out);TA.changed++;
+          tg[k].forEach(function(w){
+            if(w.t==='cover'){var g=refUpd[w.id]||clone(S.refs[w.id]);if(g.cover===k)g.cover=nk;refUpd[w.id]=g;}
+            else{var it=itemUpd[w.id]||clone(S.items[w.id]);if(it.img===k)it.img=nk;it.imgs=(it.imgs||[]).map(function(x){return x===k?nk:x;});itemUpd[w.id]=it;}
+          });
+          setTimeout(function(){if(!_imgInUse(k,''))fbDeleteImage(k);},2500);
+        });
+      }).catch(function(){TA.skipped++;}).then(function(){TA.done++;if(TA.done%5===0)flush();if($('mo-l1'))rTA();setTimeout(next,20);});
+    });
+  };
+  next();
+}
+
+// ════════════ 🏷️ ITEM PAGE — pictures, where it's filed, details, full sighting history ════════════
+var IV=null;
+function openItemView(id,o){
+  o=o||{};var it=S.items[id];if(!it)return;
+  IV={id:id,level:o.level||1,fromFind:!!o.fromFind};rIV();
+}
+function rIV(){
+  if(!IV)return;var it=S.items[IV.id];if(!it){closeModal(IV.level);IV=null;return;}
+  var lv=IV.level,ss=itemSightings(it.id),imgs=itemAllImgs(it),c=cat(it.cat);
+  var h='<div class="mo-h"><h3>'+esc(it.name)+'</h3><button class="icon-btn" title="Edit" onclick="ivEdit()">✏️</button><button class="icon-btn" onclick="closeModal('+lv+');IV=null">✕</button></div><div class="mo-b" id="iv-b">';
+  var anc=it.parent&&S.refs[it.parent]?refAncestors(it).concat([]):[];
+  h+='<div class="crumbs" style="margin-top:-6px">'+(anc.length?anc.map(function(a,i){return(i?'<span>›</span>':'')+'<button onclick="closeModal('+lv+');IV=null;closeModal(1);setTab(\'lib\');libGo(\''+a.id+'\')">'+esc(a.name)+'</button>';}).join(''):'<button onclick="ivFile()">📥 File in library…</button>')+'</div>';
+  if(it.mystery)h+='<div class="sec" style="margin:0 0 8px;border-color:#8b5cf6"><b>❓ Not identified yet</b><div class="hint" style="margin:2px 0 6px">'+esc(it.desc||'')+'</div><button class="btn btn-p btn-sm" onclick="closeModal('+lv+');IV=null;openFind({itemId:\''+it.id+'\'})">🔎 Find it in my library</button></div>';
+  h+=imgs.length?'<div class="ref-car">'+imgs.map(function(k){return imgHTML(k,'','onclick="refZoom(this)"'+(L.sticker&&k===it.img?' data-st':''));}).join('')+'</div>'+(imgs.length>1?'<div class="hint" style="text-align:center">swipe · '+imgs.length+' pictures</div>':''):
+    '<div class="empty" style="padding:18px">'+(c?c.icon:'📦')+'<br><span class="hint">No picture yet — tap ✏️</span></div>';
+  var fl=(it.folders||[]).filter(function(f){return S.folders[f];});
+  if(fl.length)h+='<div class="chips" style="flex-wrap:wrap;margin-top:6px">'+fl.map(function(f){var fo=S.folders[f];return'<span class="chip">'+esc(fo.icon||'📁')+' '+esc(fo.name)+'</span>';}).join('')+'</div>';
+  // spotted
+  h+='<div class="m-lbl" style="margin-top:12px">👀 Spotted <span class="r">'+ss.length+'×</span></div>';
+  if(IV.fromFind)h+='<button class="btn btn-p btn-block" style="padding:13px;font-size:15px" onclick="refPicked(\''+it.id+'\')">✓ This is it — log it'+(F&&F.date&&F.date!==tod()?' ('+fmtDate(F.date)+')':'')+'</button>';
+  else{var sd=sessDefaults();
+    h+='<div class="row"><button class="btn btn-p" style="flex:1;padding:11px" onclick="ivQuick()">✅ Spotted '+(sd.date===tod()?'today':esc(fmtDate(sd.date)))+'</button><button class="btn btn-s" style="padding:11px" onclick="openSighting(null,{item:\''+it.id+'\'})">＋ With details</button></div>';}
+  h+='<div style="margin-top:4px">'+(ss.length?ss.map(sightRow).join(''):'<div class="hint" style="padding:6px 0">Not spotted yet — this is a reference.</div>')+'</div>';
+  // details + tells
+  var fs=traitSchema(effCat(it)),et=effTraits(it),mine=IV.fromFind&&F?F.traits:{};
+  var rows=fs.map(function(f){var v=et[f.id];if(!v||!v.length)return'';var my=mine[f.id]||[];
+    return'<div class="row" style="align-items:flex-start;padding:3px 0"><span class="hint" style="width:92px;flex-shrink:0">'+esc(f.name)+'</span><div class="chips" style="flex-wrap:wrap;padding:0">'+v.map(function(x){return'<span class="chip" style="'+(my.indexOf(x)>=0?'border-color:#16a34a;background:#16a34a22':'')+'">'+(f.type==='color'?'<span style="width:10px;height:10px;border-radius:50%;background:'+_colorHex(x)+';display:inline-block;border:1px solid #8884"></span>':'')+esc(x)+'</span>';}).join('')+'</div></div>';}).join('');
+  if(rows)h+='<div class="m-lbl">Details</div>'+rows;
+  if(it.notes)h+='<div class="sec"><b>👀 Notes & tells</b><div style="font-size:13px;white-space:pre-wrap;margin-top:3px">'+esc(it.notes)+'</div></div>';
+  if(it.link)h+='<a class="hint" href="'+esc(it.link)+'" target="_blank" rel="noopener">🔗 '+esc(it.link.slice(0,60))+'</a>';
+  h+='</div>';
+  var st=$('iv-b')?$('iv-b').scrollTop:0;openModal(h,lv);var b=$('iv-b');if(b)b.scrollTop=st;
+}
+function ivQuick(){var it=S.items[IV.id];quickSight(it.id);rIV();}
+function ivEdit(){var id=IV.id,lv=IV.level;closeModal(lv);IV=null;if(lv>1)closeModal(1);openItemModal(id,{fromView:true});}
+function ivFile(){var id=IV.id;openTreePicker({title:'File “'+S.items[id].name+'” in…',onPick:function(d){var x=clone(S.items[id]);x.parent=d;put('items',x);rIV();render();}});}
+
+// ════════════ 📌 SESSION — pre-fill date / place / people / folders while back-logging ════════════
+function sess(){var s=L.session;return s&&s.on?s:null;}
+function sessDefaults(){var s=sess();
+  return{date:s&&s.date||tod(),place:s?(s.place||''):(L.lastPlace&&S.places[L.lastPlace]&&L.lastPlaceDay===tod()?L.lastPlace:''),by:s&&s.by&&s.by.length?s.by.slice():[L.me],folders:s?(s.folders||[]).slice():[],parent:s?(s.parent||''):''};}
+function sessionBannerHTML(){var s=sess();if(!s)return'';
+  var who=(s.by||[]).map(function(p){return(person(p)||{name:'?'}).name;}).join(' & ');
+  var bits=[fmtDate(s.date)+(s.date===tod()?' (today)':''),s.place?'📍 '+placeName(s.place):'',who,(s.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(', '),s.parent&&S.refs[s.parent]?'📚 '+S.refs[s.parent].name:''].filter(Boolean);
+  return'<div class="sess-bar" onclick="openSession()"><b>📌 Logging</b> <span>'+esc(bits.join(' · '))+'</span><button class="btn btn-sm" onclick="event.stopPropagation();endSession()">End</button></div>';}
+var SS=null;
+function openSession(seed){
+  var s=sess()||seed||sessDefaults();
+  SS={date:s.date||tod(),place:s.place||'',by:(s.by||[L.me]).slice(),folders:(s.folders||[]).slice(),parent:s.parent||''};rSS();
+}
+function _ssCap(){var e=$('ss-date');if(e&&SS)SS.date=e.value||tod();}
+function rSS(){
+  var p=SS.parent&&S.refs[SS.parent];
+  var h='<div class="mo-h"><h3>📌 Logging session</h3><button class="icon-btn" onclick="closeModal(1)">✕</button></div><div class="mo-b">';
+  h+='<div class="hint">Back-logging a trip or a day? Set it once — every item and sighting you add uses these until you tap End.</div>';
+  h+='<div class="m-lbl">Date</div><input type="date" class="m-in" id="ss-date" value="'+esc(SS.date)+'">';
+  h+='<div class="m-lbl">Spotted by</div>'+whoChips(SS.by,'SS.by','rSSc');
+  h+='<div class="m-lbl">Where</div>'+placeChip(SS.place,'_ssCap();openPlacePicker(function(id){SS.place=id;rSS();})','_ssCap();SS.place=\'\';rSS()');
+  h+='<div class="m-lbl">Put new items in these folders <span class="r hint">Items tab</span></div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(f){var on=SS.folders.indexOf(f.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="_ssCap();var a=SS.folders,i=a.indexOf(\''+f.id+'\');if(i>=0)a.splice(i,1);else a.push(\''+f.id+'\');rSS()">'+esc(f.icon||'📁')+' '+esc(f.name)+'</button>';}).join('')+'<button class="chip" onclick="_ssCap();newFolder(function(id){SS.folders.push(id);rSS();})">＋ Folder</button></div>';
+  h+='<div class="m-lbl">File new items in library folder <span class="r hint">optional</span></div><button class="btn btn-s btn-block" style="justify-content:flex-start" onclick="_ssCap();openTreePicker({title:\'Library folder for new items\',start:SS.parent,onPick:function(d){SS.parent=d;rSS();}})">📂 '+(p?esc((refPath(p)?refPath(p)+' › ':'')+p.name):'None (decide per item)')+'</button>';
+  h+='<div class="sec"><b>📥 Back-logging a pile of pictures?</b><div class="hint" style="margin:2px 0 6px">Use the Tray: share from Google Lens / Photos into Spotted, then create them all at once with one date & place.</div><button class="btn btn-s btn-block" onclick="closeModal(1);openTray()">📥 Open tray</button></div>';
+  h+='</div><div class="mo-f">'+(sess()?'<button class="btn btn-d" onclick="endSession();closeModal(1)">End session</button>':'<button class="btn btn-s" onclick="closeModal(1)">Cancel</button>')+'<button class="btn btn-p" onclick="_ssCap();startSession();closeModal(1)">'+(sess()?'Update':'Start')+'</button></div>';
+  openModal(h,1);
+}
+function rSSc(){_ssCap();rSS();}
+function startSession(quiet){L.session={on:true,date:SS.date,place:SS.place,by:SS.by.slice(),folders:SS.folders.slice(),parent:SS.parent};svL();render();if(!quiet)toast('📌 Session on — new items & sightings use these');}
+function endSession(){L.session=null;svL();render();toast('📌 Session ended');}
+
+// ════════════ 🖼 BATCH — open several gallery photos as new items, one after another ════════════
+var BQ=null;
+function batchPick(){
+  var inp=$('file-gal');inp.value='';inp.multiple=true;
+  inp.onchange=function(){var fs=[].slice.call(inp.files||[]);inp.multiple=false;if(!fs.length)return;
+    BQ={files:fs,i:0,saved:0};toast(fs.length+' photos queued',1800);batchOpen();};
+  inp.click();
+}
+function batchOpen(){
+  if(!BQ)return;
+  if(BQ.i>=BQ.files.length){var n=BQ.saved;BQ=null;render();return toast('🖼 Batch done — '+n+' saved',3000);}
+  var f=BQ.files[BQ.i];
+  readPhotoFile(f).then(function(r){openItemModal(null,{photo:r.data,meta:r.meta,batch:true});}).catch(function(){BQ.i++;batchOpen();});
+}
+function batchNext(saved){if(!BQ)return;if(saved)BQ.saved++;BQ.i++;setTimeout(batchOpen,200);}
+
+// ════════════ 📅 photo date & location from EXIF ════════════
+function readPhotoFile(file){
+  return Promise.all([file.slice(0,262144).arrayBuffer().then(parseExif).catch(function(){return{};}),fileToData(file)])
+    .then(function(r){var m=r[0]||{};if(!m.date&&file.lastModified&&/image\//.test(file.type)){}return{data:r[1],meta:m};});
+}
+function parseExif(buf){
+  var v=new DataView(buf);if(v.byteLength<4||v.getUint16(0)!==0xFFD8)return{};
+  var off=2;
+  while(off+4<v.byteLength){var mk=v.getUint16(off);if((mk&0xFF00)!==0xFF00)break;var len=v.getUint16(off+2);
+    if(mk===0xFFE1&&v.getUint32(off+4)===0x45786966){return _tiff(v,off+10);}off+=2+len;}
+  return{};
+}
+function _tiff(v,t){
+  var le=v.getUint16(t)===0x4949,u16=function(o){return v.getUint16(o,le);},u32=function(o){return v.getUint32(o,le);};
+  var str=function(o,n){var s='';for(var i=0;i<n;i++){var c=v.getUint8(o+i);if(!c)break;s+=String.fromCharCode(c);}return s;};
+  var ifd=function(o){var n=u16(o),out={};for(var i=0;i<n;i++){var e=o+2+i*12;out[u16(e)]={type:u16(e+2),count:u32(e+4),val:e+8};}return out;};
+  var res={};
+  try{
+    var i0=ifd(t+u32(t+4)),date='';
+    if(i0[0x8769]){var ex=ifd(t+u32(i0[0x8769].val));var d=ex[0x9003]||ex[0x9004];if(d)date=str(t+u32(d.val),19);}
+    if(!date&&i0[0x0132])date=str(t+u32(i0[0x0132].val),19);
+    var m=/^(\d{4}):(\d{2}):(\d{2})/.exec(date||'');if(m&&m[1]!=='0000')res.date=m[1]+'-'+m[2]+'-'+m[3];
+    if(i0[0x8825]){var g=ifd(t+u32(i0[0x8825].val));
+      var rat=function(e,k){var o=t+u32(e.val)+k*8;return u32(o)/(u32(o+4)||1);};
+      var dms=function(e){return rat(e,0)+rat(e,1)/60+rat(e,2)/3600;};
+      if(g[2]&&g[4]){var lat=dms(g[2]),lng=dms(g[4]);if(g[1]&&String.fromCharCode(v.getUint8(g[1].val))==='S')lat=-lat;if(g[3]&&String.fromCharCode(v.getUint8(g[3].val))==='W')lng=-lng;if(lat||lng){res.lat=lat;res.lng=lng;}}}
+  }catch(e){}
+  return res;
+}
+function nearestPlace(lat,lng,maxM){var best=null,bd=maxM||250;vals(S.places).forEach(function(p){if(p.lat==null)return;var dy=(p.lat-lat)*111320,dx=(p.lng-lng)*111320*Math.cos(lat*Math.PI/180),dd=Math.sqrt(dx*dx+dy*dy);if(dd<bd){bd=dd;best=p;}});return best;}
+// apply photo metadata to a NEW item being created
+function applyPhotoMeta(meta){
+  if(!IM||!IM.isNew||!meta)return;
+  var msg=[];
+  // batch back-logging: each photo's own date wins; otherwise a 📌 session date wins
+  if(meta.date&&(IM.batch||!sess())&&meta.date!==IM.first.date){IM.first.date=meta.date;var di=$('im-fdate');if(di)di.value=meta.date;msg.push('date '+fmtDate(meta.date));}
+  if(meta.lat!=null){IM.exifLoc={lat:meta.lat,lng:meta.lng};{var p=nearestPlace(meta.lat,meta.lng,250);if(p){IM.first.place=p.id;msg.push('📍 '+p.name);}}}
+  if(msg.length)toast('From the photo: '+msg.join(' · '),3000);
+  rItem();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  📥 TRAY — a staging area for back-logging.
+//  Share pictures from Google Lens / Google Photos / Chrome into Spotted (or add from the gallery);
+//  they wait here. Pick a batch, set date / place / people / folders ONCE, create them all.
+//  tray: {id, img, name, link, date, lat, lng, match(itemId), sel, created}
+// ════════════════════════════════════════════════════════════════
+function trayList(){return vals(S.tray||{}).sort(function(a,b){return(a.created||0)-(b.created||0);});}
+// a tray entry is a full draft item (made in the normal item editor); older entries were just a picture + name
+function trayDraft(t){return t.draft||{id:'it_'+gid(),name:t.name||'',cat:'',img:t.img||'',imgs:[],folders:[],traits:{},notes:t.link?'🔗 '+t.link:'',parent:''};}
+function trayAdd(dataUrl,o){
+  o=o||{};
+  return tidyMaybe(dataUrl).then(function(t){return resizeData(t,900,'webp',0.88);}).then(function(d){
+    var k=imgSave(d);
+    var t={id:'tr_'+gid(),draft:{id:'it_'+gid(),name:o.name||'',cat:'',img:k,imgs:[],folders:[],traits:{},notes:o.link?'🔗 '+o.link:'',parent:''},date:o.date||'',lat:o.lat!=null?o.lat:null,lng:o.lng!=null?o.lng:null,sel:true,created:now()};
+    put('tray',t);if(TRY)rTray();else render();return t;
+  });
+}
+var TRY=null;
+function openTray(){TRY={};rTray();}
+function _trayCap(){}
+function rTray(){
+  var list=trayList(),nsel=list.filter(function(t){return t.sel;}).length;
+  var h='<div class="mo-h"><h3>📥 Tray <span class="hint">'+list.length+' draft'+(list.length===1?'':'s')+'</span></h3><button class="icon-btn" onclick="closeModal(1);TRY=null;render()">✕</button></div><div class="mo-b" id="tray-b">';
+  h+='<button class="btn btn-p btn-block" style="padding:13px;font-size:15px" onclick="closeModal(1);openItemModal(null,{draft:true})">＋ New draft item</button>';
+  h+='<div class="hint" style="margin:6px 0 10px">Make each item as usual — your photo, clean-up, name, category, library folder. They wait here (not in your inventory) until you select a batch, give it a date & place, and deploy.</div>';
+  if(!list.length)h+='<div class="empty" style="padding:24px"><div class="big">📥</div>No drafts yet.</div>';
+  else{
+    h+='<div class="row" style="margin-bottom:6px"><b style="flex:1;font-size:13px">'+nsel+' selected</b><button class="btn btn-g btn-sm" onclick="traySelAll('+(nsel<list.length?1:0)+')">'+(nsel<list.length?'Select all':'Select none')+'</button></div>';
+    h+=list.map(function(t){var d=trayDraft(t),m=t.match&&S.items[t.match],c=cat(d.cat),lp=d.parent&&S.refs[d.parent];
+      return'<div class="tray-row'+(t.sel?' on':'')+'"><button class="tray-chk" onclick="trayToggle(\''+t.id+'\')">'+(t.sel?'✓':'')+'</button>'+
+        '<div class="tray-img" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})">'+(d.img?imgHTML(d.img):'<div class="thumb" style="width:100%;height:100%">'+(c?c.icon:'📦')+'</div>')+'</div>'+
+        '<div style="flex:1;min-width:0" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(d.name||'Untitled')+'</div>'+
+        '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
+        '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
+  }
+  h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button><button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
+  var st=$('tray-b')?$('tray-b').scrollTop:0;openModal(h,1);var b=$('tray-b');if(b)b.scrollTop=st;
+}
+function trayToggle(id){var t=clone(S.tray[id]);t.sel=!t.sel;put('tray',t);rTray();}
+function traySelAll(on){trayList().forEach(function(t){if(!!t.sel!==!!on){var x=clone(t);x.sel=!!on;put('tray',x);}});rTray();}
+function trayRemove(id,keepImg){var t=S.tray[id];if(!t)return;var d=trayDraft(t);if(!keepImg)[d.img,d.orig,d.mockImg].concat(d.imgs||[]).forEach(function(k){if(k&&!_imgInUse(k,id))fbDeleteImage(k);});del('tray',id);}
+function trayDelSel(){var s=trayList().filter(function(t){return t.sel;});if(!confirm('Delete '+s.length+' draft'+(s.length===1?'':'s')+'?'))return;s.forEach(function(t){trayRemove(t.id);});rTray();render();}
+function trayPick(kind){
+  if(kind==='gal'){var inp=$('file-gal');inp.value='';inp.multiple=true;
+    inp.onchange=function(){var fs=[].slice.call(inp.files||[]);inp.multiple=false;if(!fs.length)return;toast('Adding '+fs.length+'…',1500);
+      fs.reduce(function(p,f){return p.then(function(){return readPhotoFile(f).then(function(r){return trayAdd(r.data,{date:r.meta.date,lat:r.meta.lat,lng:r.meta.lng});}).catch(function(){});});},Promise.resolve()).then(function(){toast('📥 Added '+fs.length);});};
+    return inp.click();}
+  pickPhoto(kind,function(d,meta){meta=meta||{};trayAdd(d,{date:meta.date,lat:meta.lat,lng:meta.lng});});
+}
+function trayMenu(id){
+  var t=S.tray[id],d=trayDraft(t);
+  var h='<div class="mo-h"><h3>'+esc(d.name||'Draft')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(2);closeModal(1);openItemModal(null,{trayId:\''+id+'\'})">✏️ Edit draft</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(2);trayMatch(\''+id+'\')">🏷 '+(t.match&&S.items[t.match]?'Matched to '+esc(S.items[t.match].name)+' — change':'It\'s an item I already have (just log a sighting)')+'</button>'+
+    (t.match?'<button class="btn btn-g btn-block" onclick="var x=clone(S.tray[\''+id+'\']);x.match=\'\';put(\'tray\',x);closeModal(2);rTray()">Unmatch (deploy as a new item)</button>':'')+
+    '<button class="btn btn-d btn-block" onclick="closeModal(2);trayRemove(\''+id+'\');rTray()">Delete draft</button></div>';
+  openModal(h,2);
+}
+function trayMatch(id){openItemPicker(function(iid){var x=clone(S.tray[id]);x.match=iid;put('tray',x);rTray();},{title:'Which item is it?'});}
+function _trayReplace(id,d){return tidyMaybe(d).then(function(t){return resizeData(t,900,'webp',0.88);}).then(function(o){var x=clone(S.tray[id]),old=x.img;x.img=imgSave(o);put('tray',x);if(old&&!_imgInUse(old,''))fbDeleteImage(old);rTray();});}
+function trayCut(id){toast('Cutting out…');imgGet(S.tray[id].img,function(src){if(!src)return;classicRemove(src).then(function(d){return _trayReplace(id,d);}).catch(function(e){toast(e.message||'Could not cut out',3000);});});}
+function trayTouch(id){imgGet(S.tray[id].img,function(src){if(src)openTouchUp(src,function(d){_trayReplace(id,d);});});}
+
+// ── assign one date / place / people / folders to the selected batch, then create ──
+var TA2=null;
+function openTrayAssign(){
+  var sel=trayList().filter(function(t){return t.sel;}),sd=sessDefaults();
+  var dates={};sel.forEach(function(t){if(t.date)dates[t.date]=1;});var dk=Object.keys(dates);
+  var p=null;sel.some(function(t){if(t.lat!=null){p=nearestPlace(t.lat,t.lng,250);return!!p;}return false;});
+  TA2={date:dk.length===1?dk[0]:sd.date,own:dk.length>1,place:(p&&p.id)||sd.place,by:sd.by,folders:sd.folders,parent:sd.parent,cat:'',spotted:true,merge:true,n:sel.length,nDated:sel.filter(function(t){return t.date;}).length};
+  rTA2();
+}
+function _ta2Cap(){var e=$('ta2-date');if(e&&TA2)TA2.date=e.value||tod();}
+function rTA2(){
+  var p=TA2.parent&&S.refs[TA2.parent];
+  var h='<div class="mo-h"><h3>🚀 Deploy '+TA2.n+' item'+(TA2.n===1?'':'s')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">';
+  h+='<label class="toggle"><input type="checkbox" '+(TA2.spotted?'checked':'')+' onchange="_ta2Cap();TA2.spotted=this.checked;rTA2()"><b>Log them as spotted</b></label>';
+  if(TA2.spotted){
+    h+='<div class="m-lbl">Date spotted</div><input type="date" class="m-in" id="ta2-date" value="'+esc(TA2.date)+'">';
+    if(TA2.nDated)h+='<label class="toggle"><input type="checkbox" '+(TA2.own?'checked':'')+' onchange="_ta2Cap();TA2.own=this.checked">Use each picture\'s own date when it has one ('+TA2.nDated+' of '+TA2.n+' do)</label>';
+    h+='<div class="m-lbl">Spotted by</div>'+whoChips(TA2.by,'TA2.by','rTA2c');
+    h+='<div class="m-lbl">Where</div>'+placeChip(TA2.place,'_ta2Cap();openPlacePicker(function(id){TA2.place=id;rTA2();})','_ta2Cap();TA2.place=\'\';rTA2()');
+  }
+  h+='<div class="m-lbl">Category <span class="r hint">only fills in drafts that don\'t have one</span></div><div class="chips" style="flex-wrap:wrap"><button class="chip'+(!TA2.cat?' on':'')+'" onclick="_ta2Cap();TA2.cat=\'\';rTA2()">Keep each draft\'s</button>'+catList().map(function(c){return'<button class="chip'+(TA2.cat===c.id?' on':'')+'" onclick="_ta2Cap();TA2.cat=\''+c.id+'\';rTA2()">'+c.icon+' '+esc(c.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="m-lbl">📚 Library folder <span class="r hint">for drafts not filed yet</span></div><button class="btn btn-s btn-block" style="justify-content:flex-start" onclick="_ta2Cap();openTreePicker({title:\'File them in…\',start:TA2.parent,onPick:function(d){TA2.parent=d;rTA2();}})">📂 '+(p?esc((refPath(p)?refPath(p)+' › ':'')+p.name):'Keep each draft\'s')+'</button>';
+  h+='<div class="m-lbl">🏷️ Also add to Items folders <span class="r hint">e.g. Chicago Trip</span></div><div class="chips" style="flex-wrap:wrap">'+folderList().map(function(f){var on=TA2.folders.indexOf(f.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="_ta2Cap();var a=TA2.folders,i=a.indexOf(\''+f.id+'\');if(i>=0)a.splice(i,1);else a.push(\''+f.id+'\');rTA2()">'+esc(f.icon||'📁')+' '+esc(f.name)+'</button>';}).join('')+'<button class="chip" onclick="_ta2Cap();newFolder(function(id){TA2.folders.push(id);rTA2();})">＋ Folder</button></div>';
+  h+='<label class="toggle"><input type="checkbox" '+(TA2.merge?'checked':'')+' onchange="_ta2Cap();TA2.merge=this.checked">If I already have an item with the same name, add the sighting to it instead of making a duplicate</label>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(2)">Back</button><button class="btn btn-p" onclick="_ta2Cap();trayCreate()">🚀 Deploy '+TA2.n+'</button></div>';
+  openModal(h,2);
+}
+function rTA2c(){_ta2Cap();rTA2();}
+function trayCreate(){
+  var sel=trayList().filter(function(t){return t.sel;}),made=0,logged=0;
+  sel.forEach(function(t){
+    var d=clone(trayDraft(t)),name=(d.name||'').trim()||'❓ Unnamed';
+    var date=TA2.own&&t.date?t.date:TA2.date;
+    var target=t.match&&S.items[t.match]?S.items[t.match]:(TA2.merge?vals(S.items).find(function(i){return i.name.toLowerCase()===name.toLowerCase();}):null);
+    if(target){
+      var x=clone(target);itemAllImgs(d).forEach(function(k){if(!x.img)x.img=k;else if(itemAllImgs(x).indexOf(k)<0)x.imgs=(x.imgs||[]).concat([k]);});
+      (d.folders||[]).concat(TA2.folders).forEach(function(f){x.folders=x.folders||[];if(x.folders.indexOf(f)<0)x.folders.push(f);});
+      if(!x.parent)x.parent=d.parent||TA2.parent||'';put('items',x);
+      if(TA2.spotted){addSighting({item:x.id,date:date,by:TA2.by.slice(),place:TA2.place});logged++;}
+    }else{
+      var it=d;it.id=S.items[it.id]?'it_'+gid():(it.id||'it_'+gid());it.name=name;
+      if(!it.parent&&TA2.parent)it.parent=TA2.parent;
+      if(!it.cat)it.cat=TA2.cat||(it.parent&&S.refs[it.parent]?effCat(S.refs[it.parent]):'');
+      it.folders=(it.folders||[]).slice();TA2.folders.forEach(function(f){if(it.folders.indexOf(f)<0)it.folders.push(f);});
+      if(name.indexOf('❓')===0)it.mystery=true;
+      it.created=now();put('items',it);made++;
+      if(TA2.spotted)addSighting({item:it.id,date:date,by:TA2.by.slice(),place:TA2.place});
+    }
+    trayRemove(t.id,true);
+  });
+  if(TA2.place){L.lastPlace=TA2.place;svL();}
+  closeModal(2);TA2=null;
+  if(trayList().length)rTray();else{closeModal(1);TRY=null;}
+  render();
+  toast('🚀 Deployed '+made+' item'+(made===1?'':'s')+(logged?' · '+logged+' added to existing':''),4000);
+}
+function trayBadgeHTML(){var n=trayList().length;return n?'<button class="tray-badge" onclick="openTray()" title="Tray">📥<b>'+n+'</b></button>':'';}
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){

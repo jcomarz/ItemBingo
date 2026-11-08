@@ -1,19 +1,21 @@
-// Spotted service worker — network-first app shell + Android share target
-const CACHE='ib-v1.12.1';
+// Spotted service worker — network-first app shell + Android share target (→ 📥 Tray)
+const CACHE='ib-v2.3';
 const SHELL=['./','./index.html','./manifest.json','./icons/icon-192x192.png','./icons/icon-512x512.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).catch(()=>{}));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n.startsWith('ib-v')&&n!==CACHE).map(n=>caches.delete(n)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',e=>{
   const url=new URL(e.request.url);
-  // Android share sheet → "Spotted": stash the image, open the app on it
+  // Android share sheet → "Spotted": stash every shared picture (+ any title/text/link), then open the tray
   if(e.request.method==='POST'&&url.pathname.endsWith('/share-target')){
     e.respondWith((async()=>{
       try{
         const fd=await e.request.formData();
-        const f=fd.get('image');
+        const files=fd.getAll('image').filter(f=>f&&f.size);
         const c=await caches.open('ib-share');
-        if(f&&f.size)await c.put('shared-image',new Response(f,{headers:{'Content-Type':f.type||'image/jpeg'}}));
-        else{const link=fd.get('url')||fd.get('text')||'';if(link)await c.put('shared-url',new Response(String(link)));}
+        const stamp=Date.now();
+        for(let i=0;i<files.length;i++){const f=files[i];await c.put('img-'+stamp+'-'+i,new Response(f,{headers:{'Content-Type':f.type||'image/jpeg','X-Name':encodeURIComponent(f.name||'')}}));}
+        const meta={title:fd.get('title')||'',text:fd.get('text')||'',url:fd.get('url')||'',files:files.length};
+        await c.put('meta-'+stamp,new Response(JSON.stringify(meta),{headers:{'Content-Type':'application/json'}}));
       }catch(err){}
       return Response.redirect('./index.html?shared=1',303);
     })());
