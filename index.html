@@ -283,6 +283,10 @@ textarea.m-in{min-height:64px;resize:vertical}
 .lk-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--paperGrid);border-radius:12px;background:var(--paper);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
 .lk-main b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lk-url{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.lk-logo{background:#fff;border:1px solid #e5e5e5;overflow:hidden}
+.lk-logo img{width:78%;height:78%;object-fit:contain;display:block}
+.lk-dots{display:inline-flex;gap:2px;margin:0 4px;vertical-align:middle}
+.lk-dots .lk-ic{border-radius:4px;font-size:8px}
 .lk-ic{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;font-weight:800;font-size:12px;line-height:1;font-family:system-ui,sans-serif}
 .sec{border:1px solid var(--paperGrid);border-radius:12px;padding:10px 12px;margin-top:10px}
 .sec h4{font-size:14px;margin-bottom:4px}
@@ -302,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.4';
+var APP_VERSION='v2.5';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1222,7 +1226,7 @@ function itemsGridHTML(){
       (it.mystery?'<div class="ribbon" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9)">❓ ID me</div>':'<div class="ribbon'+(ss.length?'':' none')+'">'+(ss.length?'×'+ss.length:'not yet')+'</div>')+
       '<div class="inv-imgw">'+(it.img?imgHTML(it.img,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+(c?c.icon:'📦')+'</div>')+'</div>'+
       '<div class="inv-info"><div class="inv-name">'+esc(it.name||'Untitled')+'</div><div class="inv-meta">'+(c?c.icon+' ':'')+(ss.length?fmtDate(ss[0].date):'')+
-      '<span style="margin-left:auto;display:flex;gap:1px">'+Object.keys(who).map(function(p){return pdot(p,1);}).join('')+'</span></div></div></div>';
+      cardLinkDots(it)+'<span style="margin-left:auto;display:flex;gap:1px">'+Object.keys(who).map(function(p){return pdot(p,1);}).join('')+'</span></div></div></div>';
   }).join('')+'</div>';
 }
 function renderItemsGrid(){var g=$('items-grid');if(g){g.innerHTML=itemsGridHTML();hydrate(g);}}
@@ -3043,7 +3047,7 @@ function libCard(r){
   var k=itemThumb(r),n=itemSightings(r.id).length;
   return'<div class="inv-card'+(sel?' sel':'')+'" onclick="'+tap+'">'+(LF.sel?'<div class="selbox">'+(sel?'✓':'')+'</div>':'')+(n?'<div class="ribbon">×'+n+'</div>':'')+
     '<div class="inv-imgw">'+(k?imgHTML(k,'',L.sticker?'data-st':''):'<div class="inv-noimg">'+((cat(effCat(r))||{}).icon||'📦')+'</div>')+'</div>'+
-    '<div class="inv-info"><div class="inv-name">'+esc(r.name)+'</div>'+(libFlat()?'<div class="inv-meta">'+esc(refPath(r))+'</div>':'')+
+    '<div class="inv-info"><div class="inv-name">'+esc(r.name)+(isGroup(r)?'':cardLinkDots(r))+'</div>'+(libFlat()?'<div class="inv-meta">'+esc(refPath(r))+'</div>':'')+
     ((L.libSort==='first'||L.libSort==='last')?(function(){var x=_spotRange(r);return'<div class="inv-meta">'+(x&&x.first?'📅 '+fmtDate(L.libSort==='first'?x.first:x.last):'never spotted')+'</div>';})():'')+'</div></div>';
 }
 // library sort: A–Z · recently spotted · earliest spotted · most spotted · recently added (never-spotted always last for date sorts)
@@ -3511,7 +3515,12 @@ function openLink(u,how){
   else{a.href=u;a.target='_blank';}
   document.body.appendChild(a);a.click();a.remove();
 }
-function linkBadge(u,size){var s=linkSite(u);size=size||26;
+function linkFavicon(u,px){var h=linkHost(u);return h?'https://www.google.com/s2/favicons?sz='+(px>32?128:64)+'&domain='+encodeURIComponent(h):'';}
+function linkBadge(u,size){size=size||26;var fav=linkFavicon(u,size);
+  var fb=_linkBadgeText(u,size);if(!fav)return fb;
+  // logo on a white tile; if it can't load (offline), swap to the coloured letter badge
+  return'<span class="lk-ic lk-logo" style="width:'+size+'px;height:'+size+'px"><img src="'+fav+'" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.outerHTML=decodeURIComponent(\''+encodeURIComponent(fb).replace(/'/g,'%27')+'\')"></span>';}
+function _linkBadgeText(u,size){var s=linkSite(u);size=size||26;
   if(!s)return'<span class="lk-ic" style="width:'+size+'px;height:'+size+'px;background:var(--paperGrid);color:var(--ink)">🔗</span>';
   return'<span class="lk-ic" style="width:'+size+'px;height:'+size+'px;background:'+s.bg+';color:'+s.fg+';'+(s.bg==='#fff'?'border:1px solid #ddd;':'')+'">'+esc(s.ab)+'</span>';}
 // item page: big tappable rows — tap opens the app, ⋯ for browser / copy
@@ -3524,10 +3533,11 @@ function linksViewHTML(it){
         '<button class="icon-btn" title="More" onclick="linkMenu(\''+esc(jsq(l.url))+'\')">⋯</button></div>';}).join('');}
   var q=encodeURIComponent((it.name||'').replace(/❓/g,'').trim());
   if(q)h+='<div class="m-lbl" style="margin-top:10px">🔎 Look it up</div><div class="chips" style="flex-wrap:wrap">'+
-    LINK_SITES.filter(function(s){return s.search;}).map(function(s){return'<button class="chip" onclick="openLink(\''+esc(jsq(s.search+q))+'\')">'+linkBadge(s.search,16)+' '+esc(s.name)+'</button>';}).join('')+
+    LINK_SITES.filter(function(s){return s.search;}).map(function(s){return'<button class="chip" onclick="openLink(\''+esc(jsq(s.search+q))+'\',\'web\')">'+linkBadge(s.search,18)+' '+esc(s.name)+'</button>';}).join('')+
     '<button class="chip" onclick="openLink(\'https://www.google.com/search?tbm=isch&q='+q+'\',\'web\')">🖼 Google Images</button></div>';
   return h;
 }
+function cardLinkDots(it){var ls=itemLinks(it);if(!ls.length)return'';var seen={},out=[];ls.forEach(function(l){var h=linkHost(l.url);if(h&&!seen[h]&&out.length<3){seen[h]=1;out.push(linkBadge(l.url,15));}});return'<span class="lk-dots">'+out.join('')+'</span>';}
 function _lkPath(u){try{var x=new URL(u);var p=x.pathname.replace(/\/$/,'');return p.length>40?p.slice(0,38)+'…':p;}catch(e){return'';}}
 function decodeURIComponentSafe(s){try{return decodeURIComponent(s);}catch(e){return s;}}
 function jsq(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}

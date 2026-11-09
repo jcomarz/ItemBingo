@@ -1,5 +1,5 @@
 // Spotted service worker — network-first app shell + Android share target (→ 📥 Tray)
-const CACHE='ib-v2.4';
+const CACHE='ib-v2.5';
 const SHELL=['./','./index.html','./manifest.json','./icons/icon-192x192.png','./icons/icon-512x512.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).catch(()=>{}));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n.startsWith('ib-v')&&n!==CACHE).map(n=>caches.delete(n)))).then(()=>self.clients.claim()));});
