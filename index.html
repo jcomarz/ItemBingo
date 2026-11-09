@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.5';
+var APP_VERSION='v2.6';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3512,6 +3512,9 @@ function openLink(u,how){
   if(!u)return;var s=linkSite(u),pkg=s&&s.pkg;
   var a=document.createElement('a');a.rel='noopener';
   if(IS_ANDROID&&how!=='web'&&pkg){a.href=linkIntent(u,pkg);}
+  // "open in browser" on Android: shop apps (StockX…) claim their whole domain, so a plain link gets
+  // swallowed by the app and lands on its home screen. Addressing the intent to Chrome itself keeps it in a tab.
+  else if(IS_ANDROID&&how==='web'&&s){a.href=linkIntent(u,L.browserPkg||'com.android.chrome');}
   else{a.href=u;a.target='_blank';}
   document.body.appendChild(a);a.click();a.remove();
 }
