@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.7';
+var APP_VERSION='v2.8';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1058,8 +1058,8 @@ function checkSharedImage(){
       // a shared link with no picture (e.g. a product page) → try to fetch it as an image
       Object.keys(metaBy).forEach(function(st){var m=metaBy[st];if(m.files)return;var link=_shareLink(m);if(!link)return;
         var ks=linkSite(link);
-        if(ks&&ks.id!=='google'){setTimeout(function(){sharedLinkSheet(link,_shareName(m));},400);return;}
-        jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){setTimeout(function(){sharedLinkSheet(link,_shareName(m));},400);}));});
+        if(ks&&ks.id!=='google'){setTimeout(function(){sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));},400);return;}
+        jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){setTimeout(function(){sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));},400);}));});
       return Promise.all(jobs).then(function(){if(added){toast('📥 '+added+' added to your tray',2500);if(fromShare)openTray();}});
     });
   });});
@@ -3571,11 +3571,11 @@ function linksEditHTML(f){
 }
 function _imLinksCap(){if(!IM)return;var ls=itemLinks(IM.f);document.querySelectorAll('[data-lki]').forEach(function(e){var l=ls[+e.getAttribute('data-lki')];if(l){var v=e.value.trim();if(v)l.label=v;else delete l.label;}});IM.f.links=ls;delete IM.f.link;}
 function imLinkAdd(text){
-  _imCap();var e=$('im-link'),raw=text!=null?text:(e?e.value:''),u=linkFind(raw)||(/^[\w.-]+\.[a-z]{2,}\//i.test(raw.trim())?'https://'+raw.trim():'');
+  _imCap();var e=$('im-link'),raw=text!=null?text:(e?e.value:''),sp=linkShareParse(raw),u=sp.url||(/^[\w.-]+\.[a-z]{2,}\//i.test(raw.trim())?'https://'+raw.trim():'');
   if(!u){if(e){e.style.borderColor='var(--bad)';e.focus();}return toast('No link found in that');}
   var ls=itemLinks(IM.f);if(ls.some(function(l){return l.url===u;}))return toast('Already added');
   ls.push({url:u});IM.f.links=ls;delete IM.f.link;
-  var nm=linkSlugName(u);
+  var nm=sp.name||linkSlugName(u);
   if(nm&&!(IM.f.name||'').trim()){IM.f.name=nm;var ne=$('im-name');if(ne)ne.value=nm;}
   var le=$('im-link');if(le)le.value='';
   rItem();toast((linkSite(u)?linkSite(u).name:'Link')+' added'+(nm&&IM.f.name===nm?' · named from the link':''),2200);
@@ -3585,7 +3585,8 @@ function imLinkDel(i){_imCap();var ls=itemLinks(IM.f);ls.splice(i,1);IM.f.links=
 
 // ── a link shared into Spotted from another app (StockX → Share → Spotted) ──
 function sharedLinkSheet(u,title){
-  var s=linkSite(u),nm=linkSlugName(u)||title||'';
+  var sp=linkShareParse((title||'')+' '+u);u=sp.url||linkClean(u);
+  var s=linkSite(u),nm=sp.name||linkSlugName(u)||title||'';
   var h='<div class="mo-h"><h3>'+linkBadge(u,22)+' Link from '+esc(s?s.name:linkHost(u))+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
     '<div class="hint" style="word-break:break-all">'+(nm?'<b>'+esc(nm)+'</b><br>':'')+esc(u)+'</div>'+
     '<button class="btn btn-p btn-block" style="padding:13px" onclick="closeModal(2);openItemPicker(function(id){var x=clone(S.items[id]),ls=itemLinks(x);if(!ls.some(function(l){return l.url===\''+esc(jsq(u))+'\';}))ls.push({url:\''+esc(jsq(u))+'\'});x.links=ls;delete x.link;put(\'items\',x);render();toast(\'🔗 Added to \'+x.name);openItemView(id);},{title:\'Add the link to…\'})">🔗 Add to an item I have</button>'+
@@ -3603,6 +3604,31 @@ function linkPasteSearch(siteId,text){
   var go=function(ok){toast(ok?'📋 “'+text+'” copied — tap search in '+s.name+' and paste':'Search '+s.name+' for: '+text,4500);setTimeout(function(){openLink('https://'+linkHost(s.search)+'/');},ok?350:900);};
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(function(){go(true);}).catch(function(){go(false);});else go(false);
 }
+
+// ── share text → {url, name}: "Check out the Jordan 1 Retro High OG Khaki (Women's) available on StockX https://…" ──
+function linkClean(u){
+  try{var x=new URL(u);['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','gclid','igshid','si','_branch_match_id','_branch_referrer','referrer','ref','share_id','shareId'].forEach(function(k){x.searchParams.delete(k);});
+    var out=x.origin+x.pathname+(x.searchParams.toString()?'?'+x.searchParams.toString():'')+x.hash;return out;}catch(e){return u;}
+}
+function linkShareParse(text){
+  text=String(text||'');var raw=linkFind(text);if(!raw)return{url:'',name:''};
+  var t=text.replace(/https?:\/\/[^\s<>"']+/gi,' ').replace(/\s+/g,' ').trim();
+  t=t.replace(/^(hey[,!]?\s*)?(check (this|it) out[:!,]?\s*|check out\s+|look at\s+|i (found|saw) (this|these)\s*|shop\s+|buy\s+)/i,'')
+     .replace(/^(the|this|these|a|an)\s+/i,'')
+     .replace(/\s*[-–—|:,]?\s*(now\s+)?(available|for sale|selling|live|in stock)?\s*(on|at|from|via)\s+(the\s+)?(stockx|goat|ebay|grailed|flight ?club|nike|snkrs|depop|poshmark|mercari|amazon)(\s+app)?[.!]*\s*$/i,'')
+     .replace(/\s*[-–—|]\s*(stockx|goat|ebay|grailed|flight ?club)\s*$/i,'')
+     .replace(/[\s:!.,]+$/,'').trim();
+  if(t.length<3||t.length>100)t='';
+  return{url:linkClean(raw),name:t};
+}
+// pasting share text into the item NAME box: keep the product name, file the link under 🔗 Links
+document.addEventListener('input',function(e){
+  var el=e.target;if(!el||el.id!=='im-name'||!IM||!/https?:\/\//i.test(el.value))return;
+  var r=linkShareParse(el.value);if(!r.url)return;
+  el.value=r.name||linkSlugName(r.url)||'';IM.f.name=el.value;
+  var le=$('im-link');if(le)le.value='';
+  imLinkAdd(r.url);
+});
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){
