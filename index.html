@@ -279,6 +279,11 @@ textarea.m-in{min-height:64px;resize:vertical}
 .pick.on{border:2px solid var(--accent1)}
 .toast{position:fixed;left:50%;bottom:calc(140px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--accent1);color:var(--paper);padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;z-index:3000;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:up .2s}
 .kbd{font-family:ui-monospace,monospace;font-size:11px;background:var(--paperDark);padding:1px 5px;border-radius:4px}
+.lk-row{display:flex;align-items:center;gap:6px;margin:4px 0}
+.lk-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--paperGrid);border-radius:12px;background:var(--paper);color:var(--ink);font:inherit;font-size:14px;cursor:pointer}
+.lk-main b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lk-url{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.lk-ic{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;font-weight:800;font-size:12px;line-height:1;font-family:system-ui,sans-serif}
 .sec{border:1px solid var(--paperGrid);border-radius:12px;padding:10px 12px;margin-top:10px}
 .sec h4{font-size:14px;margin-bottom:4px}
 </style>
@@ -297,7 +302,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.3';
+var APP_VERSION='v2.4';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1048,7 +1053,9 @@ function checkSharedImage(){
           added++;return trayAdd(res.data,{name:_shareName(m),link:_shareLink(m),date:res.meta.date,lat:res.meta.lat,lng:res.meta.lng,src:'share'});});});});
       // a shared link with no picture (e.g. a product page) → try to fetch it as an image
       Object.keys(metaBy).forEach(function(st){var m=metaBy[st];if(m.files)return;var link=_shareLink(m);if(!link)return;
-        jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){toast('That link isn\'t a picture — in Lens, long-press the image → Share',5000);}));});
+        var ks=linkSite(link);
+        if(ks&&ks.id!=='google'){setTimeout(function(){sharedLinkSheet(link,_shareName(m));},400);return;}
+        jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){setTimeout(function(){sharedLinkSheet(link,_shareName(m));},400);}));});
       return Promise.all(jobs).then(function(){if(added){toast('📥 '+added+' added to your tray',2500);if(fromShare)openTray();}});
     });
   });});
@@ -1277,6 +1284,7 @@ function _imCap(){
   if(!IM)return;var e;
   if((e=$('im-name')))IM.f.name=e.value;
   if((e=$('im-notes')))IM.f.notes=e.value;
+  if(document.querySelector('[data-lki]'))_imLinksCap();
   if((e=$('im-fnote'))&&IM.first)IM.first.note=e.value;
   if((e=$('im-fdate'))&&IM.first)IM.first.date=e.value||tod();
 }
@@ -1325,6 +1333,7 @@ function rItem(){
   var inh=lp?traitSummary(effTraits(lp)):'',nsel=Object.keys(f.traits||{}).filter(function(k){return(f.traits[k]||[]).length;}).length;
   h+='<details class="sec" '+(TR_OPEN.IT._open?'open':'')+' ontoggle="TR_OPEN.IT._open=this.open"><summary style="font-weight:700;font-size:13px">🔎 Details for Find'+(nsel?' ('+nsel+')':'')+'</summary>'+(inh?'<div class="hint" style="margin:4px 0">From its folder: <b>'+esc(inh)+'</b></div>':'')+(f.cat?traitsHTML('IT',TR_OPEN.IT):'<div class="hint">Pick a category first.</div>')+'</details>';
   h+='<div class="m-lbl">Notes & tells</div><textarea class="m-in" id="im-notes" placeholder="Details, size, colorway, story, how to tell it apart…">'+esc(f.notes||'')+'</textarea>';
+  h+=linksEditHTML(f);
   if(IM.draft)h+='</div><div class="mo-f">'+(IM.trayId?'<button class="btn btn-d" onclick="if(confirm(\'Delete this draft?\')){trayRemove(IM.trayId);closeModal(1);openTray();}">🗑</button>':'')+'<button class="btn btn-s" onclick="closeModal(1);openTray()">Cancel</button><button class="btn btn-p" onclick="saveItem()">📥 Save to tray</button></div>';
   else h+='</div><div class="mo-f">'+(IM.batch?'<button class="btn btn-s" onclick="closeModal(1);batchNext(false)">Skip</button>':'<button class="btn btn-s" onclick="imClose()">Cancel</button>')+
     (isNew&&!IM.batch&&!IM.ctx?'<button class="btn btn-s" title="Keep as a draft — assign date & place later in a batch" onclick="IM.draft=true;saveItem()">📥 Tray</button>':'')+
@@ -1466,7 +1475,7 @@ function saveItem(quiet){
 function draftAutosave(){if(IM&&IM.draft&&$('mo-l1')&&$('im-name'))saveItem(true);}
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')draftAutosave();});
 window.addEventListener('pagehide',draftAutosave);
-setInterval(function(){if(IM&&IM.draft&&IM._dirtyTick!==JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders])){IM._dirtyTick=JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders]);if(IM._seen)draftAutosave();IM._seen=true;}},20000);
+setInterval(function(){if(IM&&IM.draft&&IM._dirtyTick!==JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders,IM.f.links])){IM._dirtyTick=JSON.stringify([$('im-name')&&$('im-name').value,$('im-notes')&&$('im-notes').value,IM.vers.length,IM.cur,(IM.addImgs||[]).length,IM.f.cat,IM.f.parent,IM.f.traits,IM.f.folders,IM.f.links]);if(IM._seen)draftAutosave();IM._seen=true;}},20000);
 function deleteItem(){
   var it=S.items[IM.id];if(!it)return;var ss=itemSightings(it.id);
   if(!confirm('Delete "'+it.name+'" and its '+ss.length+' sighting(s)?'))return;
@@ -3233,7 +3242,7 @@ function rIV(){
     return'<div class="row" style="align-items:flex-start;padding:3px 0"><span class="hint" style="width:92px;flex-shrink:0">'+esc(f.name)+'</span><div class="chips" style="flex-wrap:wrap;padding:0">'+v.map(function(x){return'<span class="chip" style="'+(my.indexOf(x)>=0?'border-color:#16a34a;background:#16a34a22':'')+'">'+(f.type==='color'?'<span style="width:10px;height:10px;border-radius:50%;background:'+_colorHex(x)+';display:inline-block;border:1px solid #8884"></span>':'')+esc(x)+'</span>';}).join('')+'</div></div>';}).join('');
   if(rows)h+='<div class="m-lbl">Details</div>'+rows;
   if(it.notes)h+='<div class="sec"><b>👀 Notes & tells</b><div style="font-size:13px;white-space:pre-wrap;margin-top:3px">'+esc(it.notes)+'</div></div>';
-  if(it.link)h+='<a class="hint" href="'+esc(it.link)+'" target="_blank" rel="noopener">🔗 '+esc(it.link.slice(0,60))+'</a>';
+  h+=linksViewHTML(it);
   h+='</div>';
   var st=$('iv-b')?$('iv-b').scrollTop:0;openModal(h,lv);var b=$('iv-b');if(b)b.scrollTop=st;
 }
@@ -3429,7 +3438,9 @@ function trayCreate(){
     if(target){
       var x=clone(target);itemAllImgs(d).forEach(function(k){if(!x.img)x.img=k;else if(itemAllImgs(x).indexOf(k)<0)x.imgs=(x.imgs||[]).concat([k]);});
       (d.folders||[]).concat(TA2.folders).forEach(function(f){x.folders=x.folders||[];if(x.folders.indexOf(f)<0)x.folders.push(f);});
-      if(!x.parent)x.parent=d.parent||TA2.parent||'';put('items',x);
+      if(!x.parent)x.parent=d.parent||TA2.parent||'';
+      var xl=itemLinks(x);itemLinks(d).forEach(function(l){if(!xl.some(function(y){return y.url===l.url;}))xl.push(l);});if(xl.length){x.links=xl;delete x.link;}
+      put('items',x);
       if(TA2.spotted){addSighting({item:x.id,date:date,by:TA2.by.slice(),place:TA2.place});logged++;}
     }else{
       var it=d;it.id=S.items[it.id]?'it_'+gid():(it.id||'it_'+gid());it.name=name;
@@ -3449,6 +3460,126 @@ function trayCreate(){
   toast('🚀 Deployed '+made+' item'+(made===1?'':'s')+(logged?' · '+logged+' added to existing':''),4000);
 }
 function trayBadgeHTML(){var n=trayList().length;return n?'<button class="tray-badge" onclick="openTray()" title="Tray">📥<b>'+n+'</b></button>':'';}
+
+// ════════════ 🔗 LINKS — product pages that open straight in the right Android app ════════════
+// On Android, a link to a known shop opens as an intent:// URL aimed at that app's package; if the
+// app isn't installed (or doesn't handle that page) Chrome falls back to the normal web page.
+var LINK_SITES=[
+  {id:'stockx',re:/(^|\.)stockx\.com$/,name:'StockX',bg:'#006340',fg:'#fff',ab:'X',pkg:'com.stockx.stockx',search:'https://stockx.com/search?s=',slug:true},
+  {id:'goat',re:/(^|\.)goat\.com$/,name:'GOAT',bg:'#111',fg:'#fff',ab:'G',pkg:'com.airgoat.goat',search:'https://www.goat.com/search?query=',slug:true},
+  {id:'ebay',re:/(^|\.)ebay\.[a-z.]+$/,name:'eBay',bg:'#e53238',fg:'#fff',ab:'e',pkg:'com.ebay.mobile',search:'https://www.ebay.com/sch/i.html?_nkw='},
+  {id:'grailed',re:/(^|\.)grailed\.com$/,name:'Grailed',bg:'#000',fg:'#fff',ab:'Gr',pkg:'',search:'https://www.grailed.com/shop?query='},
+  {id:'flightclub',re:/(^|\.)flightclub\.com$/,name:'Flight Club',bg:'#1d1d1d',fg:'#fff',ab:'FC',pkg:'',slug:true},
+  {id:'nike',re:/(^|\.)nike\.com$/,name:'Nike',bg:'#111',fg:'#fff',ab:'✓',pkg:'com.nike.omega'},
+  {id:'depop',re:/(^|\.)depop\.com$/,name:'Depop',bg:'#ff2300',fg:'#fff',ab:'d',pkg:'com.depop'},
+  {id:'poshmark',re:/(^|\.)poshmark\.com$/,name:'Poshmark',bg:'#7f0353',fg:'#fff',ab:'P',pkg:'com.poshmark.app'},
+  {id:'mercari',re:/(^|\.)mercari\.com$/,name:'Mercari',bg:'#4dc9ff',fg:'#fff',ab:'m',pkg:'com.mercariapp.mercari'},
+  {id:'amazon',re:/(^|\.)amazon\.[a-z.]+$|^a\.co$|^amzn\.to$/,name:'Amazon',bg:'#232f3e',fg:'#ff9900',ab:'a',pkg:'com.amazon.mShop.android.shopping'},
+  {id:'instagram',re:/(^|\.)instagram\.com$/,name:'Instagram',bg:'#d6249f',fg:'#fff',ab:'IG',pkg:'com.instagram.android'},
+  {id:'youtube',re:/(^|\.)youtube\.com$|^youtu\.be$/,name:'YouTube',bg:'#ff0000',fg:'#fff',ab:'▶',pkg:'com.google.android.youtube'},
+  {id:'tiktok',re:/(^|\.)tiktok\.com$/,name:'TikTok',bg:'#000',fg:'#25f4ee',ab:'♪',pkg:'com.zhiliaoapp.musically'},
+  {id:'reddit',re:/(^|\.)reddit\.com$|^redd\.it$/,name:'Reddit',bg:'#ff4500',fg:'#fff',ab:'r',pkg:'com.reddit.frontpage'},
+  {id:'pinterest',re:/(^|\.)pinterest\.[a-z.]+$|^pin\.it$/,name:'Pinterest',bg:'#e60023',fg:'#fff',ab:'P',pkg:'com.pinterest'},
+  {id:'x',re:/(^|\.)(twitter|x)\.com$/,name:'X',bg:'#000',fg:'#fff',ab:'𝕏',pkg:'com.twitter.android'},
+  {id:'google',re:/(^|\.)google\.[a-z.]+$|^goo\.gl$/,name:'Google',bg:'#fff',fg:'#4285f4',ab:'G',pkg:''}
+];
+var IS_ANDROID=/Android/i.test(navigator.userAgent);
+function linkFind(text){var m=/https?:\/\/[^\s<>"']+/i.exec(String(text||''));if(!m)return'';return m[0].replace(/[).,!?\]]+$/,'');}
+function linkHost(u){try{return new URL(u).hostname.replace(/^www\.|^m\./,'').toLowerCase();}catch(e){return'';}}
+function linkSite(u){var h=linkHost(u);return LINK_SITES.find(function(s){return s.re.test(h);})||null;}
+function linkLabel(l){var s=linkSite(l.url);return l.label||(s?s.name:linkHost(l.url)||l.url);}
+// a readable name from a product URL slug: stockx.com/air-jordan-1-retro-high-og-chicago → "Air Jordan 1 Retro High OG Chicago"
+function linkSlugName(u){
+  var s=linkSite(u);if(!s||!s.slug)return'';
+  try{var parts=new URL(u).pathname.split('/').filter(Boolean),seg=parts[parts.length-1]||'';
+    if(!seg||/^(search|sneakers|apparel|buy|sell|brands?)$/i.test(seg)||seg.indexOf('-')<0)return'';
+    var up={og:'OG',sb:'SB',qs:'QS',sp:'SP',nrg:'NRG',gs:'GS',ps:'PS',td:'TD',bape:'BAPE',kaws:'KAWS',x:'x',low:'Low',high:'High',mid:'Mid',retro:'Retro'};
+    return decodeURIComponent(seg).split('-').filter(function(w){return w&&!/^[a-z]{2}\d{4}$|^\d{3}$/i.test(w);}).map(function(w){var l=w.toLowerCase();return up[l]||(/^\d/.test(w)?w:l.charAt(0).toUpperCase()+l.slice(1));}).join(' ');
+  }catch(e){return'';}
+}
+function itemLinks(it){var a=(it&&it.links||[]).slice();if(it&&it.link&&!a.some(function(l){return l.url===it.link;}))a.unshift({url:it.link});return a.filter(function(l){return l&&l.url;});}
+function linkIntent(u,pkg){
+  try{var x=new URL(u);
+    return'intent://'+x.host+x.pathname+x.search+'#Intent;scheme='+x.protocol.replace(':','')+';action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;'+(pkg?'package='+pkg+';':'')+'S.browser_fallback_url='+encodeURIComponent(u)+';end';
+  }catch(e){return u;}
+}
+// open a link: in the app when possible (Android), else a new tab. how: 'app' | 'web'
+function openLink(u,how){
+  if(!u)return;var s=linkSite(u),pkg=s&&s.pkg;
+  var a=document.createElement('a');a.rel='noopener';
+  if(IS_ANDROID&&how!=='web'&&pkg){a.href=linkIntent(u,pkg);}
+  else{a.href=u;a.target='_blank';}
+  document.body.appendChild(a);a.click();a.remove();
+}
+function linkBadge(u,size){var s=linkSite(u);size=size||26;
+  if(!s)return'<span class="lk-ic" style="width:'+size+'px;height:'+size+'px;background:var(--paperGrid);color:var(--ink)">🔗</span>';
+  return'<span class="lk-ic" style="width:'+size+'px;height:'+size+'px;background:'+s.bg+';color:'+s.fg+';'+(s.bg==='#fff'?'border:1px solid #ddd;':'')+'">'+esc(s.ab)+'</span>';}
+// item page: big tappable rows — tap opens the app, ⋯ for browser / copy
+function linksViewHTML(it){
+  var ls=itemLinks(it),h='';
+  if(ls.length){h+='<div class="m-lbl">🔗 Links</div>';
+    h+=ls.map(function(l,i){var s=linkSite(l.url);
+      return'<div class="lk-row"><button class="lk-main" onclick="openLink(\''+esc(jsq(l.url))+'\')">'+linkBadge(l.url)+'<span style="flex:1;min-width:0;text-align:left"><b>'+esc(linkLabel(l))+'</b><span class="hint lk-url">'+esc(l.note||linkHost(l.url)+decodeURIComponentSafe(_lkPath(l.url)))+'</span></span>'+
+        (IS_ANDROID&&s&&s.pkg?'<span class="hint" style="white-space:nowrap">Open app ↗</span>':'<span class="hint">↗</span>')+'</button>'+
+        '<button class="icon-btn" title="More" onclick="linkMenu(\''+esc(jsq(l.url))+'\')">⋯</button></div>';}).join('');}
+  var q=encodeURIComponent((it.name||'').replace(/❓/g,'').trim());
+  if(q)h+='<div class="m-lbl" style="margin-top:10px">🔎 Look it up</div><div class="chips" style="flex-wrap:wrap">'+
+    LINK_SITES.filter(function(s){return s.search;}).map(function(s){return'<button class="chip" onclick="openLink(\''+esc(jsq(s.search+q))+'\')">'+linkBadge(s.search,16)+' '+esc(s.name)+'</button>';}).join('')+
+    '<button class="chip" onclick="openLink(\'https://www.google.com/search?tbm=isch&q='+q+'\',\'web\')">🖼 Google Images</button></div>';
+  return h;
+}
+function _lkPath(u){try{var x=new URL(u);var p=x.pathname.replace(/\/$/,'');return p.length>40?p.slice(0,38)+'…':p;}catch(e){return'';}}
+function decodeURIComponentSafe(s){try{return decodeURIComponent(s);}catch(e){return s;}}
+function jsq(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+function linkMenu(u){
+  var s=linkSite(u);
+  var h='<div class="mo-h"><h3>'+linkBadge(u,22)+' '+esc(s?s.name:linkHost(u))+'</h3><button class="icon-btn" onclick="closeModal(4)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<div class="hint" style="word-break:break-all">'+esc(u)+'</div>'+
+    (IS_ANDROID&&s&&s.pkg?'<button class="btn btn-p btn-block" onclick="closeModal(4);openLink(\''+esc(jsq(u))+'\')">Open in the '+esc(s.name)+' app</button>':'')+
+    '<button class="btn btn-s btn-block" onclick="closeModal(4);openLink(\''+esc(jsq(u))+'\',\'web\')">🌐 Open in browser</button>'+
+    '<button class="btn btn-s btn-block" onclick="linkCopy(\''+esc(jsq(u))+'\')">📋 Copy link</button>'+
+    (navigator.share?'<button class="btn btn-s btn-block" onclick="closeModal(4);navigator.share({url:\''+esc(jsq(u))+'\'}).catch(function(){})">📤 Share…</button>':'')+
+    '</div>';
+  openModal(h,4);
+}
+function linkCopy(u){(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(function(){toast('Copied');closeModal(4);}).catch(function(){prompt('Copy:',u);});}
+
+// ── editor (inside the item modal) ──
+function linksEditHTML(f){
+  var ls=itemLinks(f),h='<div class="m-lbl">🔗 Links <span class="r hint">StockX, GOAT, eBay… opens in the app</span></div>';
+  h+=ls.map(function(l,i){return'<div class="lk-row">'+linkBadge(l.url)+'<input class="m-in" style="flex:1;min-width:0;padding:7px 9px" placeholder="'+esc(linkLabel({url:l.url}))+'" value="'+esc(l.label||'')+'" data-lki="'+i+'" title="Label">'+
+    '<button class="icon-btn" title="Open" onclick="openLink(\''+esc(jsq(l.url))+'\')">↗</button><button class="icon-btn" title="Remove" onclick="imLinkDel('+i+')">✕</button></div>';}).join('');
+  h+='<div class="row"><input class="m-in" id="im-link" placeholder="Paste a link or the app\'s share text" style="flex:1;min-width:0" onkeydown="if(event.key===\'Enter\'){event.preventDefault();imLinkAdd();}"><button class="btn btn-s" onclick="imLinkPaste()" title="Paste from clipboard">📋</button><button class="btn btn-p" onclick="imLinkAdd()">Add</button></div>';
+  return h;
+}
+function _imLinksCap(){if(!IM)return;var ls=itemLinks(IM.f);document.querySelectorAll('[data-lki]').forEach(function(e){var l=ls[+e.getAttribute('data-lki')];if(l){var v=e.value.trim();if(v)l.label=v;else delete l.label;}});IM.f.links=ls;delete IM.f.link;}
+function imLinkAdd(text){
+  _imCap();var e=$('im-link'),raw=text!=null?text:(e?e.value:''),u=linkFind(raw)||(/^[\w.-]+\.[a-z]{2,}\//i.test(raw.trim())?'https://'+raw.trim():'');
+  if(!u){if(e){e.style.borderColor='var(--bad)';e.focus();}return toast('No link found in that');}
+  var ls=itemLinks(IM.f);if(ls.some(function(l){return l.url===u;}))return toast('Already added');
+  ls.push({url:u});IM.f.links=ls;delete IM.f.link;
+  var nm=linkSlugName(u);
+  if(nm&&!(IM.f.name||'').trim()){IM.f.name=nm;var ne=$('im-name');if(ne)ne.value=nm;}
+  var le=$('im-link');if(le)le.value='';
+  rItem();toast((linkSite(u)?linkSite(u).name:'Link')+' added'+(nm&&IM.f.name===nm?' · named from the link':''),2200);
+}
+function imLinkPaste(){if(!navigator.clipboard||!navigator.clipboard.readText)return toast('Long-press the box → Paste');navigator.clipboard.readText().then(function(t){imLinkAdd(t);}).catch(function(){toast('Long-press the box → Paste');});}
+function imLinkDel(i){_imCap();var ls=itemLinks(IM.f);ls.splice(i,1);IM.f.links=ls;delete IM.f.link;rItem();}
+
+// ── a link shared into Spotted from another app (StockX → Share → Spotted) ──
+function sharedLinkSheet(u,title){
+  var s=linkSite(u),nm=linkSlugName(u)||title||'';
+  var h='<div class="mo-h"><h3>'+linkBadge(u,22)+' Link from '+esc(s?s.name:linkHost(u))+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<div class="hint" style="word-break:break-all">'+(nm?'<b>'+esc(nm)+'</b><br>':'')+esc(u)+'</div>'+
+    '<button class="btn btn-p btn-block" style="padding:13px" onclick="closeModal(2);openItemPicker(function(id){var x=clone(S.items[id]),ls=itemLinks(x);if(!ls.some(function(l){return l.url===\''+esc(jsq(u))+'\';}))ls.push({url:\''+esc(jsq(u))+'\'});x.links=ls;delete x.link;put(\'items\',x);render();toast(\'🔗 Added to \'+x.name);openItemView(id);},{title:\'Add the link to…\'})">🔗 Add to an item I have</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(2);sharedLinkDraft(\''+esc(jsq(u))+'\',\''+esc(jsq(nm))+'\')">📥 New draft in the tray</button>'+
+    '<button class="btn btn-s btn-block" onclick="closeModal(2);openItemModal(null,{name:\''+esc(jsq(nm))+'\',logFirst:false});IM.f.links=[{url:\''+esc(jsq(u))+'\'}];rItem()">🏷 New item now</button></div>';
+  openModal(h,2);
+}
+function sharedLinkDraft(u,nm){
+  put('tray',{id:'tr_'+gid(),draft:{id:'it_'+gid(),name:nm||'',cat:'',img:'',imgs:[],folders:[],traits:{},notes:'',parent:'',links:[{url:u}]},sel:true,created:now()});
+  toast('📥 Draft added — tap it to add your photo',3000);openTray();
+}
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){
