@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.6';
+var APP_VERSION='v2.7';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3469,7 +3469,7 @@ function trayBadgeHTML(){var n=trayList().length;return n?'<button class="tray-b
 // On Android, a link to a known shop opens as an intent:// URL aimed at that app's package; if the
 // app isn't installed (or doesn't handle that page) Chrome falls back to the normal web page.
 var LINK_SITES=[
-  {id:'stockx',re:/(^|\.)stockx\.com$/,name:'StockX',bg:'#006340',fg:'#fff',ab:'X',pkg:'com.stockx.stockx',search:'https://stockx.com/search?s=',slug:true},
+  {id:'stockx',re:/(^|\.)stockx\.com$/,name:'StockX',bg:'#006340',fg:'#fff',ab:'X',pkg:'com.stockx.stockx',search:'https://stockx.com/search?s=',slug:true,pasteSearch:true},
   {id:'goat',re:/(^|\.)goat\.com$/,name:'GOAT',bg:'#111',fg:'#fff',ab:'G',pkg:'com.airgoat.goat',search:'https://www.goat.com/search?query=',slug:true},
   {id:'ebay',re:/(^|\.)ebay\.[a-z.]+$/,name:'eBay',bg:'#e53238',fg:'#fff',ab:'e',pkg:'com.ebay.mobile',search:'https://www.ebay.com/sch/i.html?_nkw='},
   {id:'grailed',re:/(^|\.)grailed\.com$/,name:'Grailed',bg:'#000',fg:'#fff',ab:'Gr',pkg:'',search:'https://www.grailed.com/shop?query='},
@@ -3536,7 +3536,11 @@ function linksViewHTML(it){
         '<button class="icon-btn" title="More" onclick="linkMenu(\''+esc(jsq(l.url))+'\')">⋯</button></div>';}).join('');}
   var q=encodeURIComponent((it.name||'').replace(/❓/g,'').trim());
   if(q)h+='<div class="m-lbl" style="margin-top:10px">🔎 Look it up</div><div class="chips" style="flex-wrap:wrap">'+
-    LINK_SITES.filter(function(s){return s.search;}).map(function(s){return'<button class="chip" onclick="openLink(\''+esc(jsq(s.search+q))+'\',\'web\')">'+linkBadge(s.search,18)+' '+esc(s.name)+'</button>';}).join('')+
+    LINK_SITES.filter(function(s){return s.search;}).map(function(s){
+      // StockX's site bounces its own search page back into the app (home screen, query lost) → copy the name + open the app to paste
+      if(s.pasteSearch&&IS_ANDROID)return'<button class="chip" onclick="linkPasteSearch(\''+s.id+'\',\''+esc(jsq(decodeURIComponent(q)))+'\')">'+linkBadge(s.search,18)+' '+esc(s.name)+' 📋</button>'+
+        '<button class="chip" onclick="openLink(\'https://www.google.com/search?q='+encodeURIComponent('site:'+linkHost(s.search)+' ')+q+'\',\'web\')">'+linkBadge(s.search,18)+' '+esc(s.name)+' via Google</button>';
+      return'<button class="chip" onclick="openLink(\''+esc(jsq(s.search+q))+'\',\'web\')">'+linkBadge(s.search,18)+' '+esc(s.name)+'</button>';}).join('')+
     '<button class="chip" onclick="openLink(\'https://www.google.com/search?tbm=isch&q='+q+'\',\'web\')">🖼 Google Images</button></div>';
   return h;
 }
@@ -3592,6 +3596,12 @@ function sharedLinkSheet(u,title){
 function sharedLinkDraft(u,nm){
   put('tray',{id:'tr_'+gid(),draft:{id:'it_'+gid(),name:nm||'',cat:'',img:'',imgs:[],folders:[],traits:{},notes:'',parent:'',links:[{url:u}]},sel:true,created:now()});
   toast('📥 Draft added — tap it to add your photo',3000);openTray();
+}
+
+function linkPasteSearch(siteId,text){
+  var s=LINK_SITES.find(function(x){return x.id===siteId;});if(!s)return;
+  var go=function(ok){toast(ok?'📋 “'+text+'” copied — tap search in '+s.name+' and paste':'Search '+s.name+' for: '+text,4500);setTimeout(function(){openLink('https://'+linkHost(s.search)+'/');},ok?350:900);};
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(function(){go(true);}).catch(function(){go(false);});else go(false);
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
