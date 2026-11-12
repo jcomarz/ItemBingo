@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.8';
+var APP_VERSION='v2.9';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1058,7 +1058,7 @@ function checkSharedImage(){
       // a shared link with no picture (e.g. a product page) → try to fetch it as an image
       Object.keys(metaBy).forEach(function(st){var m=metaBy[st];if(m.files)return;var link=_shareLink(m);if(!link)return;
         var ks=linkSite(link);
-        if(ks&&ks.id!=='google'){setTimeout(function(){sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));},400);return;}
+        if(ks&&ks.id!=='google'){var st=(m.title?m.title+' ':'')+(m.text||'')+' '+link;setTimeout(function(){if(L.shareAsk)sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));else{quickDraftFromLink(st);openTray();}},400);return;}
         jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){setTimeout(function(){sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));},400);}));});
       return Promise.all(jobs).then(function(){if(added){toast('📥 '+added+' added to your tray',2500);if(fromShare)openTray();}});
     });
@@ -3360,12 +3360,14 @@ function trayAdd(dataUrl,o){
   });
 }
 var TRY=null;
-function openTray(){TRY={};rTray();}
+function openTray(){TRY={};rTray();try{qaResume();}catch(e){}}
 function _trayCap(){}
 function rTray(){
   var list=trayList(),nsel=list.filter(function(t){return t.sel;}).length;
   var h='<div class="mo-h"><h3>📥 Tray <span class="hint">'+list.length+' draft'+(list.length===1?'':'s')+'</span></h3><button class="icon-btn" onclick="closeModal(1);TRY=null;render()">✕</button></div><div class="mo-b" id="tray-b">';
-  h+='<button class="btn btn-p btn-block" style="padding:13px;font-size:15px" onclick="closeModal(1);openItemModal(null,{draft:true})">＋ New draft item</button>';
+  h+='<div class="row"><button class="btn btn-p" style="flex:1;padding:13px;font-size:15px" onclick="closeModal(1);openItemModal(null,{draft:true})">＋ New draft item</button><button class="btn btn-s" style="padding:13px" onclick="openPasteLinks()">🔗 Paste links</button></div>';
+  h+='<div class="hint" style="margin:6px 0 0">⚡ Fastest: Lens → StockX result → <b>Share → Spotted</b>. Name, photo &amp; folder fill in. '+
+    '<label style="white-space:nowrap"><input type="checkbox" '+(L.shareAsk?'':'checked')+' onchange="L.shareAsk=!this.checked;svL()"> shared links go straight here</label></div>';
   h+='<div class="hint" style="margin:6px 0 10px">Make each item as usual — your photo, clean-up, name, category, library folder. They wait here (not in your inventory) until you select a batch, give it a date & place, and deploy.</div>';
   if(!list.length)h+='<div class="empty" style="padding:24px"><div class="big">📥</div>No drafts yet.</div>';
   else{
@@ -3374,7 +3376,7 @@ function rTray(){
       return'<div class="tray-row'+(t.sel?' on':'')+'"><button class="tray-chk" onclick="trayToggle(\''+t.id+'\')">'+(t.sel?'✓':'')+'</button>'+
         '<div class="tray-img" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})">'+(d.img?imgHTML(d.img):'<div class="thumb" style="width:100%;height:100%">'+(c?c.icon:'📦')+'</div>')+'</div>'+
         '<div style="flex:1;min-width:0" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(d.name||'Untitled')+'</div>'+
-        '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
+        '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:'',t.fetching?'⏳ getting photo…':'',t.nophoto&&!d.img?'📷 needs photo':''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
         '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
   }
   h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button><button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
@@ -3395,6 +3397,7 @@ function trayMenu(id){
   var t=S.tray[id],d=trayDraft(t);
   var h='<div class="mo-h"><h3>'+esc(d.name||'Draft')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
     '<button class="btn btn-s btn-block" onclick="closeModal(2);closeModal(1);openItemModal(null,{trayId:\''+id+'\'})">✏️ Edit draft</button>'+
+    (itemLinks(d).some(function(l){return linkSite(l.url)&&linkSite(l.url).id==='stockx';})?'<button class="btn btn-s btn-block" onclick="closeModal(2);qaFetchPhoto(\''+id+'\')">🖼 '+(d.img?'Add':'Get')+' the StockX photo</button>':'')+
     '<button class="btn btn-s btn-block" onclick="closeModal(2);trayMatch(\''+id+'\')">🏷 '+(t.match&&S.items[t.match]?'Matched to '+esc(S.items[t.match].name)+' — change':'It\'s an item I already have (just log a sighting)')+'</button>'+
     (t.match?'<button class="btn btn-g btn-block" onclick="var x=clone(S.tray[\''+id+'\']);x.match=\'\';put(\'tray\',x);closeModal(2);rTray()">Unmatch (deploy as a new item)</button>':'')+
     '<button class="btn btn-d btn-block" onclick="closeModal(2);trayRemove(\''+id+'\');rTray()">Delete draft</button></div>';
@@ -3565,7 +3568,7 @@ function linkCopy(u){(navigator.clipboard?navigator.clipboard.writeText(u):Promi
 function linksEditHTML(f){
   var ls=itemLinks(f),h='<div class="m-lbl">🔗 Links <span class="r hint">StockX, GOAT, eBay… opens in the app</span></div>';
   h+=ls.map(function(l,i){return'<div class="lk-row">'+linkBadge(l.url)+'<input class="m-in" style="flex:1;min-width:0;padding:7px 9px" placeholder="'+esc(linkLabel({url:l.url}))+'" value="'+esc(l.label||'')+'" data-lki="'+i+'" title="Label">'+
-    '<button class="icon-btn" title="Open" onclick="openLink(\''+esc(jsq(l.url))+'\')">↗</button><button class="icon-btn" title="Remove" onclick="imLinkDel('+i+')">✕</button></div>';}).join('');
+    (linkSite(l.url)&&linkSite(l.url).id==='stockx'?'<button class="icon-btn" title="Use the StockX product photo" onclick="imStockxPhoto('+i+')">🖼</button>':'')+'<button class="icon-btn" title="Open" onclick="openLink(\''+esc(jsq(l.url))+'\')">↗</button><button class="icon-btn" title="Remove" onclick="imLinkDel('+i+')">✕</button></div>';}).join('');
   h+='<div class="row"><input class="m-in" id="im-link" placeholder="Paste a link or the app\'s share text" style="flex:1;min-width:0" onkeydown="if(event.key===\'Enter\'){event.preventDefault();imLinkAdd();}"><button class="btn btn-s" onclick="imLinkPaste()" title="Paste from clipboard">📋</button><button class="btn btn-p" onclick="imLinkAdd()">Add</button></div>';
   return h;
 }
@@ -3629,6 +3632,98 @@ document.addEventListener('input',function(e){
   var le=$('im-link');if(le)le.value='';
   imLinkAdd(r.url);
 });
+
+// ════════════ ⚡ QUICK ADD — StockX share → finished draft (name + product photo + library folder) ════════════
+// Flow: photo → Google Lens → tap the StockX result → Share → Spotted. Each share becomes a tray draft with
+// the product name, the link, StockX's own white-background product shot, and a library folder guessed
+// from the name. Do 20 in a row, then batch-assign date/place in the tray and deploy.
+
+var QA_ACRO={og:'OG',sb:'SB',gs:'GS',ps:'PS',td:'TD',qs:'QS',sp:'SP',nrg:'NRG',se:'SE',lx:'LX',pe:'PE',ow:'OW',kaws:'KAWS',bape:'BAPE',cdg:'CDG',ua:'UA',rf:'RF',fog:'FOG',acg:'ACG',ii:'II',iii:'III',iv:'IV',vi:'VI',ix:'IX',xi:'XI',xii:'XII',xiii:'XIII',xiv:'XIV',xx:'XX',sj:'SJ',ul:'UL',v2:'V2',ny:'NY',la:'LA',og2:'OG2',mm:'MM',jjjjound:'JJJJound',gr:'GR',dsm:'DSM',sacai:'sacai'};
+function _qaCap(w,acro){var l=w.toLowerCase();if(acro&&QA_ACRO[l])return QA_ACRO[l];if(/^\d/.test(w))return w.toUpperCase();return l.charAt(0).toUpperCase()+l.slice(1);}
+// candidate image names for a StockX product (images.stockx.com/images/<Name>-Product.jpg)
+function stockxImageCandidates(u,shareName){
+  var out=[],add=function(n){n=n.replace(/-+/g,'-').replace(/^-|-$/g,'');if(n&&out.indexOf(n)<0)out.push(n);};
+  var slug='';try{var p=new URL(u).pathname.split('/').filter(Boolean);slug=p[p.length-1]||'';}catch(e){}
+  slug=decodeURIComponent(slug).replace(/[^a-z0-9-]/gi,'');
+  if(slug){var ws=slug.split('-');
+    var t1=ws.map(function(w){return _qaCap(w,true);}),t2=ws.map(function(w){return _qaCap(w,false);});
+    add(t1.join('-'));
+    var wi=ws.map(function(w){return w.toLowerCase();}).lastIndexOf('womens');
+    if(wi>=0){var tw=t1.slice();tw.splice(wi,1,'W');add(tw.join('-'));var tn=t1.slice();tn.splice(wi,1);add(tn.join('-'));}
+    add(t2.join('-'));
+    add(ws.map(function(w){var l=w.toLowerCase();return(l==='and'||l==='x'||l==='of'||l==='the')?l:_qaCap(w,true);}).join('-'));
+  }
+  if(shareName){var sn=shareName.replace(/\(Women's\)/i,'W').replace(/['’]/g,'').replace(/[()]/g,' ').replace(/[^A-Za-z0-9 ]+/g,' ').trim().split(/\s+/).join('-');add(sn);add('Air-'+sn);}
+  return out.map(function(n){return'https://images.stockx.com/images/'+n+'-Product.jpg';});
+}
+var QA_IMG_Q='?fit=fill&bg=FFFFFF&w=1000&h=750&q=90&trim=color';
+function _qaProbe(src){return new Promise(function(res,rej){var im=new Image();var t=setTimeout(function(){im.src='';rej(new Error('timeout'));},9000);
+  im.onload=function(){clearTimeout(t);im.naturalWidth>20?res(src):rej(new Error('tiny'));};im.onerror=function(){clearTimeout(t);rej(new Error('404'));};im.src=src;});}
+// find the first candidate that exists, then pull it in (CORS, else via the weserv proxy)
+function stockxFetchImage(u,shareName){
+  var c=stockxImageCandidates(u,shareName),i=0;
+  var next=function(){if(i>=c.length)return Promise.reject(new Error('no StockX image found'));var src=c[i++]+QA_IMG_Q;
+    return _qaProbe(src).then(function(ok){return urlToData(ok);}).catch(function(){return next();});};
+  return next();
+}
+// library folder guess: deepest folder whose name words all appear in the item name ("Jordan 1" › "Retro High OG")
+function _qaTok(s){return String(s||'').toLowerCase().replace(/air jordan/g,'jordan').replace(/[^a-z0-9 ]+/g,' ').split(/\s+/).filter(Boolean);}
+function autoFolderFor(name){
+  var nt=_qaTok(name);if(!nt.length)return'';var best=null,bs=0;
+  vals(S.refs).filter(isGroup).forEach(function(g){var gt=_qaTok(g.name);if(!gt.length)return;
+    if(!gt.every(function(w){return nt.indexOf(w)>=0;}))return;
+    // its ancestors must fit too (so "Low" under Dunk doesn't catch an Air Force 1 Low)
+    var anc=refAncestors(g);if(!anc.every(function(a){var at=_qaTok(a.name);return at.every(function(w){return nt.indexOf(w)>=0;})||!at.length||a.cat;}))return;
+    var sc=anc.length*100+gt.length*10+gt.join('').length/100;if(sc>bs){bs=sc;best=g;}});
+  return best?best.id:'';
+}
+// make a draft from a shared/pasted link; the photo fills in a moment later
+function quickDraftFromLink(raw,quiet){
+  var sp=linkShareParse(raw);if(!sp.url)return null;
+  var u=sp.url,site=linkSite(u),name=sp.name||linkSlugName(u)||'';
+  var dup=trayList().find(function(t){return(t.draft&&itemLinks(t.draft).some(function(l){return l.url===u;}));});
+  if(dup){if(!quiet)toast('Already in the tray: '+(dup.draft.name||u));return dup.id;}
+  var have=vals(S.items).find(function(i){return itemLinks(i).some(function(l){return l.url===u;});});
+  var par=autoFolderFor(name),tid='tr_'+gid();
+  var d={id:'it_'+gid(),name:name,cat:par&&S.refs[par]?effCat(S.refs[par]):'',img:'',imgs:[],folders:[],traits:{},notes:'',parent:par,links:[{url:u}],created:now()};
+  put('tray',{id:tid,draft:d,sel:true,created:now(),match:have?have.id:'',fetching:site&&site.id==='stockx'?1:0});
+  if(!quiet)toast('📥 '+(name||'Link')+(have?' — you already have this, will log a sighting':'')+(par?' · 📚 '+S.refs[par].name:''),3000);
+  if(site&&site.id==='stockx')qaFetchPhoto(tid,name);
+  return tid;
+}
+var QA_INFLIGHT={};
+function qaFetchPhoto(tid,name){
+  var t=S.tray[tid];if(!t||QA_INFLIGHT[tid])return;QA_INFLIGHT[tid]=1;setTimeout(function(){delete QA_INFLIGHT[tid];},60000);var d=trayDraft(t),u=(itemLinks(d).find(function(l){return linkSite(l.url)&&linkSite(l.url).id==='stockx';})||{}).url;
+  if(!u)return;var x0=clone(t);x0.fetching=1;x0.nophoto=0;put('tray',x0);if(TRY)rTray();
+  stockxFetchImage(u,name||d.name).then(function(data){return tidyMaybe(data);}).then(function(t2){return resizeData(t2,800,'webp',0.88);}).then(function(data){
+    var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.draft=trayDraft(x);if(!x.draft.img)x.draft.img=imgSave(data);else x.draft.imgs=(x.draft.imgs||[]).concat([imgSave(data)]);
+    x.fetching=0;x.nophoto=0;put('tray',x);delete QA_INFLIGHT[tid];if(TRY)rTray();render();
+  }).catch(function(){delete QA_INFLIGHT[tid];var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.fetching=0;x.nophoto=1;put('tray',x);if(TRY)rTray();});
+}
+// paste a pile of links / share texts at once (one per line, or just run together)
+function openPasteLinks(){
+  var h='<div class="mo-h"><h3>🔗 Paste links</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b">'+
+    '<div class="hint" style="margin-bottom:6px">Paste one or many StockX/GOAT/eBay links or share texts. Each becomes a draft — StockX ones get their product photo automatically.</div>'+
+    '<textarea class="m-in" id="pl-t" rows="8" placeholder="Check out the Jordan 1 Retro High OG Khaki (Women\'s) available on StockX https://stockx.com/…"></textarea>'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="navigator.clipboard&&navigator.clipboard.readText().then(function(t){$(\'pl-t\').value=($(\'pl-t\').value?$(\'pl-t\').value+\'\\n\':\'\')+t;})">📋 Paste</button><button class="btn btn-p" onclick="pasteLinksGo()">Add drafts</button></div>';
+  openModal(h,2);
+}
+function pasteLinksGo(){
+  var t=$('pl-t').value||'';
+  // split so each chunk is "text before a link + the link"
+  var parts=[],re=/https?:\/\/[^\s<>"']+/gi,m,last=0;
+  while((m=re.exec(t))){var pre=t.slice(last,m.index).split(/\n/).pop();parts.push(pre+' '+m[0]);last=re.lastIndex;}
+  var n=0;parts.forEach(function(p){if(quickDraftFromLink(p,true))n++;});
+  closeModal(2);toast(n?'📥 '+n+' draft'+(n===1?'':'s')+' added':'No links found');rTray();
+}
+
+// resume photo look-ups that were interrupted (app closed mid-fetch, or started on another device)
+function qaResume(){trayList().forEach(function(t){if(t.fetching&&!QA_INFLIGHT[t.id]&&!trayDraft(t).img)qaFetchPhoto(t.id);});}
+// in the item editor: 🖼 next to a StockX link pulls its product shot into the photo studio
+function imStockxPhoto(i){
+  _imCap();var l=itemLinks(IM.f)[i];if(!l)return;toast('🖼 Looking for the StockX photo…');
+  stockxFetchImage(l.url,IM.f.name).then(function(d){studioAdd(d,'StockX',true);toast('🖼 StockX photo added');}).catch(function(){toast('Couldn\'t find the StockX photo for that link',3500);});
+}
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){
