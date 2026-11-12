@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.9';
+var APP_VERSION='v2.10';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3397,7 +3397,8 @@ function trayMenu(id){
   var t=S.tray[id],d=trayDraft(t);
   var h='<div class="mo-h"><h3>'+esc(d.name||'Draft')+'</h3><button class="icon-btn" onclick="closeModal(2)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
     '<button class="btn btn-s btn-block" onclick="closeModal(2);closeModal(1);openItemModal(null,{trayId:\''+id+'\'})">✏️ Edit draft</button>'+
-    (itemLinks(d).some(function(l){return linkSite(l.url)&&linkSite(l.url).id==='stockx';})?'<button class="btn btn-s btn-block" onclick="closeModal(2);qaFetchPhoto(\''+id+'\')">🖼 '+(d.img?'Add':'Get')+' the StockX photo</button>':'')+
+    (itemLinks(d).some(function(l){return linkSite(l.url)&&linkSite(l.url).id==='stockx';})?'<button class="btn btn-s btn-block" onclick="closeModal(2);toast(\'🖼 Looking…\');qaFetchPhoto(\''+id+'\',null,true)">🖼 '+(d.img?'Add':'Get')+' the StockX photo</button>':'')+
+    (!d.img?'<button class="btn btn-s btn-block" onclick="closeModal(2);qaFindPhotoWeb(\''+esc(jsq(d.name||''))+'\')">🔎 Find a photo on Google Images</button>':'')+
     '<button class="btn btn-s btn-block" onclick="closeModal(2);trayMatch(\''+id+'\')">🏷 '+(t.match&&S.items[t.match]?'Matched to '+esc(S.items[t.match].name)+' — change':'It\'s an item I already have (just log a sighting)')+'</button>'+
     (t.match?'<button class="btn btn-g btn-block" onclick="var x=clone(S.tray[\''+id+'\']);x.match=\'\';put(\'tray\',x);closeModal(2);rTray()">Unmatch (deploy as a new item)</button>':'')+
     '<button class="btn btn-d btn-block" onclick="closeModal(2);trayRemove(\''+id+'\');rTray()">Delete draft</button></div>';
@@ -3640,31 +3641,41 @@ document.addEventListener('input',function(e){
 
 var QA_ACRO={og:'OG',sb:'SB',gs:'GS',ps:'PS',td:'TD',qs:'QS',sp:'SP',nrg:'NRG',se:'SE',lx:'LX',pe:'PE',ow:'OW',kaws:'KAWS',bape:'BAPE',cdg:'CDG',ua:'UA',rf:'RF',fog:'FOG',acg:'ACG',ii:'II',iii:'III',iv:'IV',vi:'VI',ix:'IX',xi:'XI',xii:'XII',xiii:'XIII',xiv:'XIV',xx:'XX',sj:'SJ',ul:'UL',v2:'V2',ny:'NY',la:'LA',og2:'OG2',mm:'MM',jjjjound:'JJJJound',gr:'GR',dsm:'DSM',sacai:'sacai'};
 function _qaCap(w,acro){var l=w.toLowerCase();if(acro&&QA_ACRO[l])return QA_ACRO[l];if(/^\d/.test(w))return w.toUpperCase();return l.charAt(0).toUpperCase()+l.slice(1);}
-// candidate image names for a StockX product (images.stockx.com/images/<Name>-Product.jpg)
+// candidate image addresses for a StockX product. Two naming generations exist:
+//   newer  images.stockx.com/images/Nike-ZoomX-Vaporfly-Next-4-Citron-Pulse-Indigo-Burst.jpg
+//   older  images.stockx.com/images/Nike-Dunk-Low-Retro-White-Black-2021-Product.jpg
+// The name is the product title (exact casing) with punctuation dropped; Jordans carry "Air-", women's "-W".
+function _qaClean(t){return String(t||'').replace(/\(Women's\)|\bWomen's\b|\(W\)/gi,' W ').replace(/['’]/g,'').replace(/%/g,'').replace(/&/g,' ').replace(/[^A-Za-z0-9 ]+/g,' ').trim().split(/\s+/).filter(Boolean);}
 function stockxImageCandidates(u,shareName){
-  var out=[],add=function(n){n=n.replace(/-+/g,'-').replace(/^-|-$/g,'');if(n&&out.indexOf(n)<0)out.push(n);};
+  var names=[],add=function(ws){var n=ws.join('-').replace(/-+/g,'-').replace(/^-|-$/g,'');if(n&&names.indexOf(n)<0)names.push(n);};
   var slug='';try{var p=new URL(u).pathname.split('/').filter(Boolean);slug=p[p.length-1]||'';}catch(e){}
-  slug=decodeURIComponent(slug).replace(/[^a-z0-9-]/gi,'');
-  if(slug){var ws=slug.split('-');
-    var t1=ws.map(function(w){return _qaCap(w,true);}),t2=ws.map(function(w){return _qaCap(w,false);});
-    add(t1.join('-'));
-    var wi=ws.map(function(w){return w.toLowerCase();}).lastIndexOf('womens');
-    if(wi>=0){var tw=t1.slice();tw.splice(wi,1,'W');add(tw.join('-'));var tn=t1.slice();tn.splice(wi,1);add(tn.join('-'));}
-    add(t2.join('-'));
-    add(ws.map(function(w){var l=w.toLowerCase();return(l==='and'||l==='x'||l==='of'||l==='the')?l:_qaCap(w,true);}).join('-'));
-  }
-  if(shareName){var sn=shareName.replace(/\(Women's\)/i,'W').replace(/['’]/g,'').replace(/[()]/g,' ').replace(/[^A-Za-z0-9 ]+/g,' ').trim().split(/\s+/).join('-');add(sn);add('Air-'+sn);}
-  return out.map(function(n){return'https://images.stockx.com/images/'+n+'-Product.jpg';});
+  var sw=decodeURIComponent(slug).replace(/[^a-z0-9-]/gi,'').split('-').filter(Boolean);
+  var tw=_qaClean(shareName),casing={};tw.forEach(function(w){casing[w.toLowerCase()]=w;});
+  var fix=function(w){var l=w.toLowerCase();if(casing[l])return casing[l];if(QA_ACRO[l])return QA_ACRO[l];if(/\d/.test(w)&&/[a-z]/i.test(w)&&w.length<=4)return w.toUpperCase();return l.charAt(0).toUpperCase()+l.slice(1);};
+  // 1) the share title itself (best casing), plus the Air- prefix for Jordans
+  if(tw.length){add(tw);if(/^jordan$/i.test(tw[0]))add(['Air'].concat(tw));
+    var noW=tw.filter(function(w){return w!=='W';});if(noW.length!==tw.length){add(noW);if(/^jordan$/i.test(noW[0]))add(['Air'].concat(noW));}}
+  // 2) the link's slug, cased like the title where the words overlap
+  if(sw.length){var f=sw.map(fix);var wi=f.map(function(w){return w.toLowerCase();}).lastIndexOf('womens');
+    if(wi>=0){var a1=f.slice();a1.splice(wi,1,'W');add(a1);var a2=f.slice();a2.splice(wi,1);add(a2);}else add(f);
+    add(sw.map(function(w){var l=w.toLowerCase();return(l==='and'||l==='x'||l==='of'||l==='the'||l==='on')?l:fix(w);}));
+    if(wi>=0)add(f);
+    add(sw.map(function(w){var l=w.toLowerCase();return casing[l]||((/\d/.test(w)&&/[a-z]/i.test(w)&&w.length<=4)?w.toUpperCase():l.charAt(0).toUpperCase()+l.slice(1));}));}
+  var out=[];names.forEach(function(n){out.push(n+'.jpg');});names.forEach(function(n){out.push(n+'-Product.jpg');});
+  return out.slice(0,16).map(function(n){return'https://images.stockx.com/images/'+n;});
 }
 var QA_IMG_Q='?fit=fill&bg=FFFFFF&w=1000&h=750&q=90&trim=color';
-function _qaProbe(src){return new Promise(function(res,rej){var im=new Image();var t=setTimeout(function(){im.src='';rej(new Error('timeout'));},9000);
-  im.onload=function(){clearTimeout(t);im.naturalWidth>20?res(src):rej(new Error('tiny'));};im.onerror=function(){clearTimeout(t);rej(new Error('404'));};im.src=src;});}
-// find the first candidate that exists, then pull it in (CORS, else via the weserv proxy)
+function _qaProbe(src){return new Promise(function(res,rej){var im=new Image();var t=setTimeout(function(){im.src='';rej(new Error('timeout'));},8000);
+  im.onload=function(){clearTimeout(t);im.naturalWidth>40?res(src):rej(new Error('tiny'));};im.onerror=function(){clearTimeout(t);rej(new Error('404'));};im.src=src;});}
+var QA_LAST=null;
+// try every candidate at once (fast — misses are quick 404s); take the best-ranked hit, then pull it in
 function stockxFetchImage(u,shareName){
-  var c=stockxImageCandidates(u,shareName),i=0;
-  var next=function(){if(i>=c.length)return Promise.reject(new Error('no StockX image found'));var src=c[i++]+QA_IMG_Q;
-    return _qaProbe(src).then(function(ok){return urlToData(ok);}).catch(function(){return next();});};
-  return next();
+  var c=stockxImageCandidates(u,shareName);QA_LAST={tried:c,hit:null,via:''};
+  var race=function(list,wrap,via){return Promise.all(list.map(function(x,i){return _qaProbe(wrap(x)).then(function(){return i;},function(){return -1;});})).then(function(r){
+    var i=r.filter(function(k){return k>=0;}).sort(function(a,b){return a-b;})[0];if(i==null)throw new Error('none');QA_LAST.hit=list[i];QA_LAST.via=via;return list[i];});};
+  return race(c,function(x){return x+QA_IMG_Q;},'direct')
+    .catch(function(){return race(c.slice(0,6),function(x){return'https://images.weserv.nl/?url='+encodeURIComponent(x.replace(/^https?:\/\//,''))+'&w=1000';},'proxy');})
+    .then(function(hit){return urlToData(hit+QA_IMG_Q).catch(function(){return urlToData(hit);});});
 }
 // library folder guess: deepest folder whose name words all appear in the item name ("Jordan 1" › "Retro High OG")
 function _qaTok(s){return String(s||'').toLowerCase().replace(/air jordan/g,'jordan').replace(/[^a-z0-9 ]+/g,' ').split(/\s+/).filter(Boolean);}
@@ -3685,20 +3696,20 @@ function quickDraftFromLink(raw,quiet){
   if(dup){if(!quiet)toast('Already in the tray: '+(dup.draft.name||u));return dup.id;}
   var have=vals(S.items).find(function(i){return itemLinks(i).some(function(l){return l.url===u;});});
   var par=autoFolderFor(name),tid='tr_'+gid();
-  var d={id:'it_'+gid(),name:name,cat:par&&S.refs[par]?effCat(S.refs[par]):'',img:'',imgs:[],folders:[],traits:{},notes:'',parent:par,links:[{url:u}],created:now()};
+  var d={id:'it_'+gid(),srcTitle:sp.name||'',name:name,cat:par&&S.refs[par]?effCat(S.refs[par]):'',img:'',imgs:[],folders:[],traits:{},notes:'',parent:par,links:[{url:u}],created:now()};
   put('tray',{id:tid,draft:d,sel:true,created:now(),match:have?have.id:'',fetching:site&&site.id==='stockx'?1:0});
   if(!quiet)toast('📥 '+(name||'Link')+(have?' — you already have this, will log a sighting':'')+(par?' · 📚 '+S.refs[par].name:''),3000);
   if(site&&site.id==='stockx')qaFetchPhoto(tid,name);
   return tid;
 }
 var QA_INFLIGHT={};
-function qaFetchPhoto(tid,name){
+function qaFetchPhoto(tid,name,manual){
   var t=S.tray[tid];if(!t||QA_INFLIGHT[tid])return;QA_INFLIGHT[tid]=1;setTimeout(function(){delete QA_INFLIGHT[tid];},60000);var d=trayDraft(t),u=(itemLinks(d).find(function(l){return linkSite(l.url)&&linkSite(l.url).id==='stockx';})||{}).url;
   if(!u)return;var x0=clone(t);x0.fetching=1;x0.nophoto=0;put('tray',x0);if(TRY)rTray();
-  stockxFetchImage(u,name||d.name).then(function(data){return tidyMaybe(data);}).then(function(t2){return resizeData(t2,800,'webp',0.88);}).then(function(data){
+  stockxFetchImage(u,d.srcTitle||name||d.name).then(function(data){return tidyMaybe(data);}).then(function(t2){return resizeData(t2,800,'webp',0.88);}).then(function(data){
     var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.draft=trayDraft(x);if(!x.draft.img)x.draft.img=imgSave(data);else x.draft.imgs=(x.draft.imgs||[]).concat([imgSave(data)]);
     x.fetching=0;x.nophoto=0;put('tray',x);delete QA_INFLIGHT[tid];if(TRY)rTray();render();
-  }).catch(function(){delete QA_INFLIGHT[tid];var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.fetching=0;x.nophoto=1;put('tray',x);if(TRY)rTray();});
+  }).catch(function(){delete QA_INFLIGHT[tid];var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.fetching=0;x.nophoto=1;put('tray',x);if(TRY)rTray();if(manual)qaMissSheet(trayDraft(x).name,tid);});
 }
 // paste a pile of links / share texts at once (one per line, or just run together)
 function openPasteLinks(){
@@ -3722,7 +3733,30 @@ function qaResume(){trayList().forEach(function(t){if(t.fetching&&!QA_INFLIGHT[t
 // in the item editor: 🖼 next to a StockX link pulls its product shot into the photo studio
 function imStockxPhoto(i){
   _imCap();var l=itemLinks(IM.f)[i];if(!l)return;toast('🖼 Looking for the StockX photo…');
-  stockxFetchImage(l.url,IM.f.name).then(function(d){studioAdd(d,'StockX',true);toast('🖼 StockX photo added');}).catch(function(){toast('Couldn\'t find the StockX photo for that link',3500);});
+  stockxFetchImage(l.url,IM.f.srcTitle||IM.f.name).then(function(d){studioAdd(d,'StockX',true);toast('🖼 StockX photo added');}).catch(function(){qaMissSheet(IM.f.name);});
+}
+
+// no StockX photo found → one-tap Google Images search in Chrome; long-press a clean shot → Copy image → come back → Paste
+function qaFindPhotoWeb(name){
+  var q=encodeURIComponent((name||'').replace(/❓/g,'').trim()+' stockx');
+  openLink('https://www.google.com/search?tbm=isch&q='+q,'web');
+  toast('Long-press a clean shot → Copy image, then come back and tap 📋 Paste',6000);
+}
+function qaDiag(){
+  if(!QA_LAST)return toast('No look-up yet');
+  var h='<div class="mo-h"><h3>StockX photo look-up</h3><button class="icon-btn" onclick="closeModal(4)">✕</button></div><div class="mo-b"><div class="hint" style="margin-bottom:6px">'+(QA_LAST.hit?'Found ('+QA_LAST.via+'): ':'Tried '+QA_LAST.tried.length+' addresses, none loaded. Each live preview below:')+'</div>'+
+    QA_LAST.tried.map(function(c){return'<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><img src="'+esc(c+QA_IMG_Q)+'" style="width:56px;height:42px;object-fit:contain;background:#fff;border:1px solid #ddd;border-radius:6px" onerror="this.style.opacity=.15"><span class="hint" style="word-break:break-all;font-size:10px">'+esc(c.replace('https://images.stockx.com/images/',''))+'</span></div>';}).join('')+'</div>';
+  openModal(h,4);
+}
+
+function qaMissSheet(name,tid){
+  var h='<div class="mo-h"><h3>📷 No StockX photo found</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b" style="display:grid;gap:8px">'+
+    '<div class="hint">StockX didn\'t answer at any address I could guess for this one.</div>'+
+    '<button class="btn btn-p btn-block" onclick="closeModal(3);qaFindPhotoWeb(\''+esc(jsq(name||''))+'\')">🖼 Find it on Google Images</button>'+
+    '<div class="hint">Long-press a clean product shot → <b>Copy image</b> → come back → <b>📋 Paste</b> in the photo box.</div>'+
+    (tid?'<button class="btn btn-s btn-block" onclick="closeModal(3);closeModal(1);openItemModal(null,{trayId:\''+tid+'\'})">✏️ Open the draft</button>':'')+
+    '<button class="btn btn-g btn-block" onclick="qaDiag()">Show what was tried</button></div>';
+  openModal(h,3);
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
