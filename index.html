@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.12';
+var APP_VERSION='v2.13';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1588,7 +1588,9 @@ function ppResHTML(){
   var h='';
   if(PP.local.length)h+='<div class="m-lbl">Saved places</div>'+PP.local.map(function(r,i){return'<div class="li" onclick="ppChooseLocal('+i+')"><div class="thumb">'+(r.dj?'📓':'⭐')+'</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dj?' · from Decade Journal':'')+'</div></div></div>';}).join('');
   if(PP.loading)h+='<div class="m-lbl">Searching…</div><div class="spin" style="margin:8px auto"></div>';
-  else if(PP.results){h+='<div class="m-lbl">'+(PP.src||'Results')+'</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dist!=null?' · '+r.dist:'')+'</div></div></div>';}).join(''):'<div class="hint" style="padding:6px 0">No map results — tap ✍️ Use typed name to save it as is.</div>';}
+  else if(PP.results){
+    if(PP.near)h+='<button class="btn btn-s btn-block" style="margin-top:10px" onclick="ppNearApi()">📍 Nearby — look up places right here'+(gKey()?' (Google)':'')+'</button>';
+    h+='<div class="m-lbl">'+(PP.src||'Results')+'</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dist!=null?' · '+r.dist:'')+'</div></div></div>';}).join(''):'<div class="hint" style="padding:6px 0">No map results — tap ✍️ Use typed name to save it as is.</div>';}
   if(!PP.q&&!PP.results){
     var used={};vals(S.sightings).forEach(function(x){if(x.place)used[x.place]=(used[x.place]||0)+1;});
     var recent=vals(S.places).sort(function(a,b){return(used[b.id]||0)-(used[a.id]||0)||(b.u||0)-(a.u||0);});
@@ -1599,7 +1601,7 @@ function ppResHTML(){
 }
 function ppPaint(){var el=$('pp-res');if(el)el.innerHTML=ppResHTML();}
 function ppType(v){
-  PP.q=v;var q=v.trim().toLowerCase();
+  PP.q=v;PP.near=false;var q=v.trim().toLowerCase();
   // instant local matches
   var seen={},out=[];
   vals(S.places).forEach(function(p){if(q&&p.name.toLowerCase().indexOf(q)>=0){seen[p.name.toLowerCase()+'|'+(p.address||'')]=1;out.push({id:p.id,name:p.name,address:p.address});}});
@@ -1607,7 +1609,7 @@ function ppType(v){
   PP.local=out.slice(0,12);
   if(!q){PP.results=null;PP.loading=false;}
   ppPaint();
-  if(q.length>=3)debounce('ppsearch',ppSearch,500);
+  if(q.length>=3)debounce('ppsearch',ppSearch,600);else clearTimeout(_dbt.ppsearch);
 }
 function ppChoose(id){var cb=PP.cb;closeModal(3);PP=null;cb(id);}
 function ppDelete(id){if(vals(S.sightings).some(function(x){return x.place===id;})&&!confirm('This place is used by sightings. Delete anyway?'))return;del('places',id);ppPaint();}
@@ -1622,18 +1624,48 @@ function ppSave(r){
 }
 function _miles(a,b,c,d){if(!a||!c)return null;var R=3958.8,r=Math.PI/180,x=Math.sin((c-a)*r/2),y=Math.sin((d-b)*r/2);var m=2*R*Math.asin(Math.sqrt(x*x+Math.cos(a*r)*Math.cos(c*r)*y*y));return m<0.1?Math.round(m*5280)+' ft':m.toFixed(1)+' mi';}
 function _withDist(list){if(!PP.loc)return list;list.forEach(function(r){r.dist=_miles(PP.loc.lat,PP.loc.lng,r.lat,r.lng);});return list;}
-// Google Places (New) — same API + key format as Decade Journal
-function _gSearch(q,cb){
-  var body={textQuery:q,maxResultCount:10};
-  if(PP.loc)body.locationBias={circle:{center:{latitude:PP.loc.lat,longitude:PP.loc.lng},radius:15000}};
-  fetch('https://places.googleapis.com/v1/places:searchText',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.location'},body:JSON.stringify(body)})
-  .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);cb(null,(d.places||[]).map(_gMap));}).catch(function(e){cb(e);});
+// Google Places (New) — same API + key format as Decade Journal.
+// Every Google request goes through _gpSearch: session cache → daily cap → real call (counted).
+//   • cache key = kind + query + limit + rounded lat/lng; cached hits are free and never count
+//   • today's count lives in localStorage['gp_YYYY-MM-DD'] (per device, per day)
+//   • lifetime count syncs (Firebase + backups) as S.meta['gp_<device>'].calls — one record per
+//     device so two phones counting at once never overwrite each other; gpLifetime() sums them
+//   • daily cap is S.meta.gpcap.cap (default 100); at the cap the call is skipped and returns []
+var GP_CACHE={},GP_PENDING={},GP_FIELDS='places.displayName,places.formattedAddress,places.location';
+function gpCap(){var m=S.meta&&S.meta.gpcap;return m&&+m.cap>0?+m.cap:100;}
+function gpDayKey(){return'gp_'+tod();}
+function gpToday(){try{return parseInt(localStorage.getItem(gpDayKey()),10)||0;}catch(e){return 0;}}
+function gpLifetime(){var n=0;vals(S.meta||{}).forEach(function(m){if(m&&typeof m.id==='string'&&m.id.indexOf('gp_')===0)n+=+m.calls||0;});return n;}
+function _gpCount(){
+  try{localStorage.setItem(gpDayKey(),String(gpToday()+1));}catch(e){}
+  if(!L.devId){L.devId='d'+gid();svL();}
+  var id='gp_'+L.devId,cur=S.meta&&S.meta[id];
+  put('meta',{id:id,calls:(cur&&+cur.calls||0)+1,who:L.me||'',last:tod()});
 }
-function _gNearby(cb){
-  fetch('https://places.googleapis.com/v1/places:searchNearby',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':'places.displayName,places.formattedAddress,places.location'},
-    body:JSON.stringify({maxResultCount:15,rankPreference:'DISTANCE',locationRestriction:{circle:{center:{latitude:PP.loc.lat,longitude:PP.loc.lng},radius:300}}})})
-  .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);cb(null,(d.places||[]).map(_gMap));}).catch(function(e){cb(e);});
+// kind: 'text' (query required) | 'near' (uses PP.loc). cb(err, results, info) — info.cached / info.capped
+function _gpSearch(kind,q,limit,cb){
+  var loc=PP&&PP.loc,qq=String(q||'').trim();
+  var key=kind+'|'+qq.toLowerCase()+'|'+limit+'|'+(loc?(+loc.lat).toFixed(kind==='near'?3:2)+','+(+loc.lng).toFixed(kind==='near'?3:2):'-');
+  if(GP_CACHE[key]){var hit=clone(GP_CACHE[key]);setTimeout(function(){cb(null,hit,{cached:true});},0);return;}
+  if(GP_PENDING[key]){GP_PENDING[key].push(cb);return;}                     // same request already in flight → share it
+  if(kind==='near'&&!loc){setTimeout(function(){cb(new Error('No location yet'));},0);return;}
+  var cap=gpCap();
+  if(gpToday()>=cap){console.warn('[Spotted] Google Places daily cap reached ('+gpToday()+'/'+cap+') — skipped API call for "'+(qq||'nearby')+'"');
+    setTimeout(function(){cb(null,[],{capped:true});},0);return;}
+  GP_PENDING[key]=[cb];_gpCount();
+  var url,body;
+  if(kind==='near'){url='https://places.googleapis.com/v1/places:searchNearby';
+    body={maxResultCount:limit,rankPreference:'DISTANCE',locationRestriction:{circle:{center:{latitude:loc.lat,longitude:loc.lng},radius:300}}};}
+  else{url='https://places.googleapis.com/v1/places:searchText';body={textQuery:qq,maxResultCount:limit};
+    if(loc)body.locationBias={circle:{center:{latitude:loc.lat,longitude:loc.lng},radius:15000}};}
+  var flush=function(e,res){var cbs=GP_PENDING[key]||[];delete GP_PENDING[key];cbs.forEach(function(f){try{f(e,e?null:clone(res),{});}catch(x){console.error(x);}});};
+  fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':GP_FIELDS},body:JSON.stringify(body)})
+  .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);
+    var res=(d.places||[]).map(_gMap);GP_CACHE[key]=res;flush(null,res);})      // only successes are cached
+  .catch(function(e){flush(e);});
 }
+function _gSearch(q,cb){_gpSearch('text',q,10,cb);}
+function _gNearby(cb){_gpSearch('near','',15,cb);}
 function _gMap(p){return{name:(p.displayName||{}).text||'',address:p.formattedAddress||'',lat:p.location?p.location.latitude:null,lng:p.location?p.location.longitude:null};}
 // Photon (OpenStreetMap, much better than Nominatim for shops/POIs, supports location bias)
 function _photonMap(f){var pr=f.properties||{},c=(f.geometry||{}).coordinates||[];
@@ -1655,26 +1687,44 @@ function ppSearch(){
   var done=function(src){return function(e,res){if(!PP||PP.q!==myQ)return;
     if(e&&src==='Google'){console.warn('Google Places failed, using OSM',e);toast('Google Places error: '+(e.message||e)+' — using free map search',4000);return _osmSearch(myQ,done('Map results'));}
     PP.loading=false;PP.src=src==='Google'?'Google results':'Map results';PP.results=e?[]:_withDist(res);if(e)toast('Search failed: '+(e.message||e));ppPaint();};};
-  if(gKey())_gSearch(q,done('Google'));else _osmSearch(q,done('Map results'));
+  if(gKey())_gSearch(q,function(e,res,info){
+    if(info&&info.capped){if(PP&&PP.q===myQ)toast('Google Places daily limit reached ('+gpCap()+') — using free map search',3500);return _osmSearch(myQ,done('Map results'));}
+    done('Google')(e,res);});
+  else _osmSearch(q,done('Map results'));
 }
 function ppNear(){
   if(!navigator.geolocation)return alert('No GPS available');
   toast('Getting location…');
   navigator.geolocation.getCurrentPosition(function(pos){
-    var la=pos.coords.latitude,lo=pos.coords.longitude;PP.loc={lat:la,lng:lo};L.lastLoc={lat:la,lng:lo};svL();
+    var la=pos.coords.latitude,lo=pos.coords.longitude;if(!PP)return;PP.loc={lat:la,lng:lo};L.lastLoc={lat:la,lng:lo};svL();
     if((($('pp-q')||{}).value||'').trim())return ppSearch();
-    PP.loading=true;PP.q='';ppPaint();
-    var finish=function(list,src){
-      vals(S.places).filter(function(p){return p.lat&&Math.abs(p.lat-la)<0.005&&Math.abs(p.lng-lo)<0.005;}).forEach(function(p){list.unshift({id:p.id,name:p.name,address:(p.address||'')+' (saved)',lat:p.lat,lng:p.lng});});
-      PP.loading=false;PP.src=src;PP.results=_withDist(list);ppPaint();
-    };
-    if(gKey())_gNearby(function(e,res){if(!e&&res.length)return finish(res,'Nearby (Google)');osmNear();});else osmNear();
-    function osmNear(){
-      fetch('https://photon.komoot.io/reverse?limit=10&radius=0.3&lat='+la+'&lon='+lo).then(function(r){return r.json();})
-      .then(function(j){var seen={};finish((j.features||[]).map(_photonMap).filter(function(r){if(!r.name||seen[r.name])return false;seen[r.name]=1;return true;}),'Nearby');})
-      .catch(function(){finish([],'Nearby');});
-    }
+    ppSavedNearby();
   },function(e){alert('Location error: '+e.message);},{enableHighAccuracy:true,timeout:12000});
+}
+// saved places (Spotted + Decade Journal) sorted by distance — free, no API
+function ppSavedNearby(){
+  var la=PP.loc.lat,lo=PP.loc.lng,km=function(p){var r=Math.PI/180,x=Math.sin((p.lat-la)*r/2),y=Math.sin((p.lng-lo)*r/2);return 12742*Math.asin(Math.sqrt(x*x+Math.cos(la*r)*Math.cos(p.lat*r)*y*y));};
+  var seen={},list=[];
+  vals(S.places).forEach(function(p){if(p.lat==null||p.lng==null)return;seen[p.name.toLowerCase()]=1;list.push({id:p.id,name:p.name,address:p.address||'',lat:+p.lat,lng:+p.lng});});
+  djPlaces().forEach(function(p){if(p.lat==null||p.lng==null||seen[p.name.toLowerCase()])return;list.push({dj:1,name:p.name,address:p.address||'',lat:+p.lat,lng:+p.lng});});
+  list.sort(function(a,b){return km(a)-km(b);});
+  PP.q='';PP.loading=false;PP.near=true;PP.src='Your places, nearest first';PP.results=_withDist(list.slice(0,25));ppPaint();
+}
+// explicit opt-in: ask Google (or the free map if no key) what's right here
+function ppNearApi(){
+  if(!PP||!PP.loc)return ppNear();
+  var la=PP.loc.lat,lo=PP.loc.lng;PP.loading=true;ppPaint();
+  var finish=function(list,src){if(!PP)return;
+    vals(S.places).filter(function(p){return p.lat&&Math.abs(p.lat-la)<0.005&&Math.abs(p.lng-lo)<0.005;}).forEach(function(p){list.unshift({id:p.id,name:p.name,address:(p.address||'')+' (saved)',lat:p.lat,lng:p.lng});});
+    PP.loading=false;PP.near=false;PP.src=src;PP.results=_withDist(list);ppPaint();};
+  var osmNear=function(){
+    fetch('https://photon.komoot.io/reverse?limit=10&radius=0.3&lat='+la+'&lon='+lo).then(function(r){return r.json();})
+    .then(function(j){var seen={};finish((j.features||[]).map(_photonMap).filter(function(r){if(!r.name||seen[r.name])return false;seen[r.name]=1;return true;}),'Nearby (map)');})
+    .catch(function(){finish([],'Nearby (map)');});};
+  if(gKey())_gNearby(function(e,res,info){
+    if(info&&info.capped)toast('Google Places daily limit reached — using free map search',3500);
+    if(!e&&res&&res.length)return finish(res,'Nearby (Google)'+(info&&info.cached?' · cached':''));osmNear();});
+  else osmNear();
 }
 
 // ════════════ CALENDAR TAB ════════════
@@ -2095,7 +2145,10 @@ function openSettings(sec){
     '<input class="m-in" type="password" placeholder="Google Places API key" value="'+esc(L.gPlacesKey||'')+'" onchange="L.gPlacesKey=this.value.trim();svL();toast(\'Saved\')" style="margin-top:8px">'+
     (dj.gPlacesKey&&!L.gPlacesKey?'<div class="hint" style="margin-top:4px">✅ Using the key from Decade Journal on this phone automatically.</div>':'')+
     '<div class="row wrap" style="margin-top:8px">'+(dj.gPlacesKey&&dj.gPlacesKey!==L.gPlacesKey?'<button class="btn btn-s btn-sm" onclick="L.gPlacesKey=djStore().gPlacesKey;svL();openSettings()">Copy key from Decade Journal</button>':'')+
-    (djPlaces().length?'<button class="btn btn-s btn-sm" onclick="importDJPlacesLocal()">Import '+djPlaces().length+' Decade Journal places</button>':'')+'</div></div>';
+    (djPlaces().length?'<button class="btn btn-s btn-sm" onclick="importDJPlacesLocal()">Import '+djPlaces().length+' Decade Journal places</button>':'')+'</div>'+
+    '<div class="row wrap" style="margin-top:10px;align-items:center;gap:6px"><span class="hint" id="gp-usage" style="flex:1;min-width:180px">API calls: '+gpLifetime()+' · '+gpToday()+'/'+gpCap()+' today</span>'+
+    '<button class="btn btn-g btn-sm" onclick="gpResetLifetime()">Reset</button></div>'+
+    '<div class="row" style="margin-top:6px;align-items:center;gap:6px"><span class="hint">Daily limit</span><input class="m-in" type="number" min="1" step="1" style="width:90px;padding:6px 8px" value="'+gpCap()+'" onchange="gpSetCap(this.value)"><span class="hint">calls/day per device · repeat searches are cached and free</span></div></div>';
   // AI
   var djk=djStore().anthropicKey;
   h+='<div class="sec" id="sec-id"><h4>🔎 Identify from a description</h4><div class="hint">Turns “Jordan with a strap, grey fuzzy tongue” into exact model names. Claude is great at sneakers/streetwear; Gemini\'s text models have a free tier and can search the web.</div>'+
@@ -2210,6 +2263,11 @@ function storageEstimate(){
 }
 
 function widestThing(){try{var vw=window.innerWidth,best=null,bw=vw;document.querySelectorAll('#app *').forEach(function(e){var r=e.getBoundingClientRect();if(r.right>bw+2&&!e.closest('.chips,.istrip,.ref-car,.crumbs,.ver-row')){bw=r.right;best=e;}});return best?('widest: '+best.tagName.toLowerCase()+'.'+String(best.className).split(' ')[0]+' '+Math.round(bw)+'px'):'fits';}catch(e){return'';}}
+
+function gpSetCap(v){var n=parseInt(v,10);if(!(n>0))return toast('Enter a number above 0');put('meta',{id:'gpcap',cap:n});var e=$('gp-usage');if(e)e.textContent='API calls: '+gpLifetime()+' · '+gpToday()+'/'+n+' today';toast('Daily limit: '+n);}
+function gpResetLifetime(){if(!confirm('Reset the lifetime Google Places call count to 0? (Today\'s count and the daily limit are unchanged.)'))return;
+  vals(S.meta||{}).forEach(function(m){if(m&&typeof m.id==='string'&&m.id.indexOf('gp_')===0){var x=clone(m);x.calls=0;put('meta',x);}});
+  var e=$('gp-usage');if(e)e.textContent='API calls: 0 · '+gpToday()+'/'+gpCap()+' today';toast('Reset');}
 
 // ════════════════════════════════════════════════════════════════
 //  IMPORT FROM DECADE JOURNAL (same Firebase room: rooms/<room>/data/items)
