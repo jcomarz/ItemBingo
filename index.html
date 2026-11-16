@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.14';
+var APP_VERSION='v2.15';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3769,6 +3769,8 @@ function stockxFetchImage(u,shareName){
     var i=r.filter(function(k){return k>=0;}).sort(function(a,b){return a-b;})[0];if(i==null)throw new Error('none');QA_LAST.hit=list[i];QA_LAST.via=via;return list[i];});};
   return race(c,function(x){return x+QA_IMG_Q;},'direct')
     .catch(function(){return race(c.slice(0,6),function(x){return'https://images.weserv.nl/?url='+encodeURIComponent(x.replace(/^https?:\/\//,''))+'&w=1000';},'proxy');})
+    // guesses missed (StockX renames products but keeps the old photo name, e.g. UB7-S → photo still "UB6-S") → read the real address off the page
+    .catch(function(){return stockxPageImage(u).then(function(img){QA_LAST.hit=img;QA_LAST.via='page ('+QA_LAST.pageVia+')';return img;});})
     .then(function(hit){return urlToData(hit+QA_IMG_Q).catch(function(){return urlToData(hit);});});
 }
 // library folder guess: deepest folder whose name words all appear in the item name ("Jordan 1" › "Retro High OG")
@@ -3838,7 +3840,7 @@ function qaFindPhotoWeb(name){
 }
 function qaDiag(){
   if(!QA_LAST)return toast('No look-up yet');
-  var h='<div class="mo-h"><h3>StockX photo look-up</h3><button class="icon-btn" onclick="closeModal(4)">✕</button></div><div class="mo-b"><div class="hint" style="margin-bottom:6px">'+(QA_LAST.hit?'Found ('+QA_LAST.via+'): ':'Tried '+QA_LAST.tried.length+' addresses, none loaded. Each live preview below:')+'</div>'+
+  var h='<div class="mo-h"><h3>StockX photo look-up</h3><button class="icon-btn" onclick="closeModal(4)">✕</button></div><div class="mo-b"><div class="hint" style="margin-bottom:6px">'+(QA_LAST.hit?'Found ('+QA_LAST.via+'): '+esc(QA_LAST.hit.replace('https://images.stockx.com/images/','')):'Tried '+QA_LAST.tried.length+' name guesses and reading the StockX page — nothing loaded. Guesses with live previews:')+'</div>'+
     QA_LAST.tried.map(function(c){return'<div style="display:flex;gap:8px;align-items:center;margin:4px 0"><img src="'+esc(c+QA_IMG_Q)+'" style="width:56px;height:42px;object-fit:contain;background:#fff;border:1px solid #ddd;border-radius:6px" onerror="this.style.opacity=.15"><span class="hint" style="word-break:break-all;font-size:10px">'+esc(c.replace('https://images.stockx.com/images/',''))+'</span></div>';}).join('')+'</div>';
   openModal(h,4);
 }
@@ -3851,6 +3853,40 @@ function qaMissSheet(name,tid){
     (tid?'<button class="btn btn-s btn-block" onclick="closeModal(3);closeModal(1);openItemModal(null,{trayId:\''+tid+'\'})">✏️ Open the draft</button>':'')+
     '<button class="btn btn-g btn-block" onclick="qaDiag()">Show what was tried</button></div>';
   openModal(h,3);
+}
+
+// ── read the product photo address from the StockX page itself, through free read-only page fetchers
+//    (the browser can't load stockx.com directly). Tried in order; the first that finds a photo wins.
+var QA_PAGE_SRC=[
+  {n:'jina',u:function(x){return'https://r.jina.ai/'+x;},t:'text'},
+  {n:'microlink',u:function(x){return'https://api.microlink.io/?url='+encodeURIComponent(x);},t:'json'},
+  {n:'allorigins',u:function(x){return'https://api.allorigins.win/raw?url='+encodeURIComponent(x);},t:'text'},
+  {n:'corsproxy',u:function(x){return'https://corsproxy.io/?url='+encodeURIComponent(x);},t:'text'}
+];
+var QA_PAGE_CACHE={};
+function _qaImgFromText(t){
+  t=String(t||'').replace(/\\u002F/gi,'/').replace(/&amp;/g,'&');
+  var m=/images\.stockx\.com\/images\/([A-Za-z0-9._%()'-]+?\.(?:jpg|jpeg|png|webp))/i.exec(t);
+  if(m)return'https://images.stockx.com/images/'+m[1];
+  var m2=/images\.stockx\.com\/360\/([A-Za-z0-9._%()'-]+)\//i.exec(t);       // only a 360 spin → its product shot shares the name
+  if(m2)return'https://images.stockx.com/images/'+m2[1]+'-Product.jpg';
+  return'';
+}
+function stockxPageImage(u){
+  if(QA_PAGE_CACHE[u])return Promise.resolve(QA_PAGE_CACHE[u]);
+  var i=0;
+  var next=function(){
+    if(i>=QA_PAGE_SRC.length)return Promise.reject(new Error('page lookup failed'));
+    var src=QA_PAGE_SRC[i++],ctl=window.AbortController?new AbortController():null,tm=setTimeout(function(){if(ctl)ctl.abort();},12000);
+    return fetch(src.u(u),ctl?{signal:ctl.signal}:{}).then(function(r){if(!r.ok)throw new Error(src.n+' '+r.status);return src.t==='json'?r.json():r.text();})
+      .then(function(d){clearTimeout(tm);
+        var img=src.t==='json'?_qaImgFromText(((d&&d.data&&d.data.image&&d.data.image.url)||'')+' '+JSON.stringify(d||{})):_qaImgFromText(d);
+        if(!img)throw new Error(src.n+': no photo in page');
+        // make sure the address really loads before trusting it
+        return _qaProbe(img+QA_IMG_Q).then(function(){QA_LAST&&(QA_LAST.pageVia=src.n);QA_PAGE_CACHE[u]=img;return img;});})
+      .catch(function(e){clearTimeout(tm);console.warn('[Spotted] StockX page lookup via '+src.n+' failed:',e&&e.message);return next();});
+  };
+  return next();
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
