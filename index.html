@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.13';
+var APP_VERSION='v2.14';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1040,7 +1040,17 @@ function pickPhoto(kind,cb){
 }
 // Images shared into the app via Android share sheet (manifest share_target → sw.js stashes in Cache)
 // Pictures shared into Spotted (Google Lens, Google Photos, Chrome…) go to the 📥 Tray.
+// a shared link (StockX product page etc.) → straight to a tray draft, or the pick-an-item sheet
+function _handleSharedLink(m){
+  var link=_shareLink(m);if(!link)return false;var ks=linkSite(link),txt=(m.title?m.title+' ':'')+(m.text||'');
+  if(ks&&ks.id!=='google'){setTimeout(function(){if(L.shareAsk)sharedLinkSheet(link,txt);else{quickDraftFromLink(txt+' '+link);openTray();}},400);return true;}
+  return false;
+}
 function checkSharedImage(){
+  // GET share (manifest v2.14+): index.html?title=…&text=…&url=… — works even when the service worker isn't running
+  var qs=new URLSearchParams(location.search),gm={title:qs.get('title')||'',text:qs.get('text')||'',url:qs.get('url')||''};
+  if(gm.title||gm.text||gm.url){history.replaceState(null,'',location.pathname);
+    if(!_handleSharedLink(gm)){var gl=_shareLink(gm);if(gl)setTimeout(function(){sharedLinkSheet(gl,(gm.title?gm.title+' ':'')+gm.text);},400);else if(gm.text||gm.title)toast('Nothing to add — share a link or a picture',3000);}}
   if(!('caches' in window))return;
   var fromShare=location.search.indexOf('shared=1')>=0;
   if(fromShare)history.replaceState(null,'',location.pathname);
@@ -1057,8 +1067,7 @@ function checkSharedImage(){
           added++;return trayAdd(res.data,{name:_shareName(m),link:_shareLink(m),date:res.meta.date,lat:res.meta.lat,lng:res.meta.lng,src:'share'});});});});
       // a shared link with no picture (e.g. a product page) → try to fetch it as an image
       Object.keys(metaBy).forEach(function(st){var m=metaBy[st];if(m.files)return;var link=_shareLink(m);if(!link)return;
-        var ks=linkSite(link);
-        if(ks&&ks.id!=='google'){var st=(m.title?m.title+' ':'')+(m.text||'')+' '+link;setTimeout(function(){if(L.shareAsk)sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));else{quickDraftFromLink(st);openTray();}},400);return;}
+        if(_handleSharedLink(m))return;
         jobs.push(urlToData(link).then(function(d){added++;return trayAdd(d,{name:_shareName(m),link:link,src:'share'});}).catch(function(){setTimeout(function(){sharedLinkSheet(link,(m.title?m.title+' ':'')+(m.text||''));},400);}));});
       return Promise.all(jobs).then(function(){if(added){toast('📥 '+added+' added to your tray',2500);if(fromShare)openTray();}});
     });
