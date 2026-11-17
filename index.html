@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.17';
+var APP_VERSION='v2.19';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3458,6 +3458,7 @@ function rTray(){
   var list=trayList(),nsel=list.filter(function(t){return t.sel;}).length;
   var h='<div class="mo-h"><h3>📥 Tray <span class="hint">'+list.length+' draft'+(list.length===1?'':'s')+'</span></h3><button class="icon-btn" onclick="closeModal(1);TRY=null;render()">✕</button></div><div class="mo-b" id="tray-b">';
   h+='<div class="row"><button class="btn btn-p" style="flex:1;padding:13px;font-size:15px" onclick="closeModal(1);openItemModal(null,{draft:true})">＋ New draft item</button><button class="btn btn-s" style="padding:13px" onclick="openPasteLinks()">🔗 Paste links</button></div>';
+  h+='<button class="btn btn-s btn-block" style="margin-top:6px;padding:11px" onclick="trayFromPhotos()">🖼 From photos — pick many from your camera roll</button>';
   h+='<div class="hint" style="margin:6px 0 0">⚡ Fastest: Lens → StockX result → <b>Share → Spotted</b>. Name, photo &amp; folder fill in. '+
     '<label style="white-space:nowrap"><input type="checkbox" '+(L.shareAsk?'':'checked')+' onchange="L.shareAsk=!this.checked;svL()"> shared links go straight here</label></div>';
   h+='<div class="hint" style="margin:6px 0 10px">Make each item as usual — your photo, clean-up, name, category, library folder. They wait here (not in your inventory) until you select a batch, give it a date & place, and deploy.</div>';
@@ -3477,7 +3478,7 @@ function rTray(){
         '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:'',t.fetching?'⏳ getting photo…':'',baiStatusHTML(t),bidStatusHTML(t),d.aiShot&&!BAI.st[t.id]?'✨':'',t.nophoto&&!d.img?'📷 needs photo':''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
         '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
   }
-  h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button><button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button>'+(list.some(function(t){return t.sel&&t.lat!=null;})?'<button class="btn btn-s" onclick="openTrayGroups()">📍 By place</button>':'')+'<button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
   var st=$('tray-b')?$('tray-b').scrollTop:0;openModal(h,1);var b=$('tray-b');if(b)b.scrollTop=st;
 }
 function trayToggle(id){var t=clone(S.tray[id]);t.sel=!t.sel;put('tray',t);rTray();}
@@ -3568,6 +3569,29 @@ function trayCreate(){
   toast('🚀 Deployed '+made+' item'+(made===1?'':'s')+(logged?' · '+logged+' added to existing':''),4000);
 }
 function trayBadgeHTML(){var n=trayList().length;return n?'<button class="tray-badge" onclick="openTray()" title="Tray">📥<b>'+n+'</b></button>':'';}
+
+// ── many camera-roll photos → one draft each (keeps each photo's date + GPS for deploy) ──
+function trayFromPhotos(){
+  var inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.multiple=true;inp.style.display='none';
+  inp.onchange=function(){
+    var files=[].slice.call(inp.files||[]);inp.remove();if(!files.length)return;
+    // the new batch becomes the selection, so 🔎 Identify / ✨ Shots / Deploy act on just these
+    trayList().forEach(function(t){if(t.sel){var x=clone(t);x.sel=false;put('tray',x);}});
+    var done=0,fail=0,made=[];toast('🖼 Adding '+files.length+' photo'+(files.length===1?'':'s')+'…',2500);
+    var i=0;(function next(){
+      if(i>=files.length){
+        // put them in the order they were taken
+        made.sort(function(a,b){return(a.ts||0)-(b.ts||0);}).forEach(function(m,k){var t=S.tray[m.id];if(t){var x=clone(t);x.created=Date.now()+k;put('tray',x);}});
+        toast('🖼 '+done+' draft'+(done===1?'':'s')+' added'+(fail?' · '+fail+' couldn\'t be read':'')+' — select → 🔎 Identify',4500);if(TRY)rTray();return;}
+      var f=files[i++];
+      readPhotoFile(f).then(function(res){var m=res.meta||{};
+        return trayAdd(res.data,{date:m.date||'',lat:m.lat,lng:m.lng}).then(function(t){done++;made.push({id:t.id,ts:(m.date?Date.parse(m.date):0)||f.lastModified||0});
+          if(TRY&&done%3===0)toast('🖼 '+done+'/'+files.length+'…',1200);});
+      }).catch(function(){fail++;}).then(next);
+    })();
+  };
+  document.body.appendChild(inp);inp.click();
+}
 
 // ════════════ 🔗 LINKS — product pages that open straight in the right Android app ════════════
 // On Android, a link to a known shop opens as an intent:// URL aimed at that app's package; if the
@@ -4060,6 +4084,86 @@ function bidStockxPhoto(tid,name){
     x.draft.img=imgSave(d);var ls=itemLinks(x.draft);if(!ls.some(function(l){return l.url===u;}))ls.push({url:u});x.draft.links=ls;delete x.draft.link;
     x.fetching=0;put('tray',x);if(TRY)rTray();
   }).catch(function(){var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.fetching=0;put('tray',x);if(TRY)rTray();});
+}
+
+// ════════════ 📍 GROUP BY PLACE — cluster tray drafts by photo GPS + day, deploy each group to its own place ════════════
+var TG=null,TG_REV={};
+var TG_RADIUS=300;   // metres — photos taken within this of a group's centre (same day) join it
+function _tgDist(a,b){var dy=(a.lat-b.lat)*111320,dx=(a.lng-b.lng)*111320*Math.cos(a.lat*Math.PI/180);return Math.sqrt(dx*dx+dy*dy);}
+function trayGroups(list){
+  var gs=[],none={id:'g_none',ids:[],date:'',lat:null,lng:null,place:'',none:true};
+  list.slice().sort(function(a,b){return(a.date||'').localeCompare(b.date||'')||(a.created||0)-(b.created||0);}).forEach(function(t){
+    if(t.lat==null||t.lng==null){none.ids.push(t.id);return;}
+    var p={lat:+t.lat,lng:+t.lng},g=gs.find(function(x){return x.date===(t.date||'')&&_tgDist(x,p)<TG_RADIUS;});
+    if(!g){g={id:'g_'+gid(),ids:[],date:t.date||'',lat:p.lat,lng:p.lng,sumLat:0,sumLng:0,place:''};gs.push(g);}
+    g.ids.push(t.id);g.sumLat+=p.lat;g.sumLng+=p.lng;g.lat=g.sumLat/g.ids.length;g.lng=g.sumLng/g.ids.length;
+  });
+  gs.forEach(function(g){var np=nearestPlace(g.lat,g.lng,TG_RADIUS);if(np)g.place=np.id;});
+  if(none.ids.length)gs.push(none);
+  return gs;
+}
+function openTrayGroups(){
+  var sel=trayList().filter(function(t){return t.sel;});
+  if(!sel.length)return toast('Select the drafts to group');
+  var withGps=sel.filter(function(t){return t.lat!=null;}).length;
+  if(!withGps)return toast('None of these have a photo location — add them with 🖼 From photos (location must be on in your camera)',5000);
+  var sd=sessDefaults(),ld=L.lastDeploy&&(Date.now()-L.lastDeploy.at<12*3600e3)?L.lastDeploy:null;
+  TG={groups:trayGroups(sel),by:(ld?ld.by:sd.by).slice()};
+  rTG();
+  TG.groups.forEach(function(g){if(!g.none&&!g.place)tgSuggest(g);});
+}
+// free OpenStreetMap lookup of what's at the group's spot — a hint you can adopt with one tap (no Google call)
+function tgSuggest(g){
+  var k=g.lat.toFixed(4)+','+g.lng.toFixed(4);
+  if(TG_REV[k]){g.sug=TG_REV[k];return rTG();}
+  fetch('https://photon.komoot.io/reverse?limit=1&lat='+g.lat+'&lon='+g.lng).then(function(r){return r.json();}).then(function(j){
+    var f=(j.features||[])[0];if(!f)return;var m=_photonMap(f);if(!m||!m.name)return;TG_REV[k]=m;g.sug=m;if(TG)rTG();}).catch(function(){});
+}
+function rTG(){
+  if(!TG)return;
+  var h='<div class="mo-h"><h3>📍 Group by place</h3><button class="icon-btn" onclick="closeModal(2);TG=null">✕</button></div><div class="mo-b" id="tg-b">'+
+    '<div class="hint" style="margin-bottom:8px">Grouped by where and which day each photo was taken. Set a place per group, then deploy them all — each draft keeps its own photo date.</div>'+
+    '<div class="m-lbl">Who spotted</div><div class="chips" style="margin-bottom:8px">'+vals(S.people).map(function(p){var on=TG.by.indexOf(p.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="_idToggle(TG.by,\''+p.id+'\');rTG()">'+esc(p.name)+'</button>';}).join('')+'</div>';
+  h+=TG.groups.map(function(g,gi){
+    var pl=g.place&&S.places[g.place],th=g.ids.slice(0,6).map(function(id){var d=trayDraft(S.tray[id]||{});return'<div class="tray-img" style="width:44px;height:44px;flex-shrink:0">'+(d.img?imgHTML(d.img):'')+'</div>';}).join('');
+    return'<div class="sec" style="padding:9px;margin-bottom:8px">'+
+      '<div class="row" style="align-items:center;gap:6px"><b style="flex:1">'+(g.none?'No photo location':'Group '+String.fromCharCode(65+gi))+' · '+g.ids.length+'</b><span class="hint">'+(g.date?fmtDate(g.date):g.none?'':'no date')+'</span></div>'+
+      '<div class="row" style="gap:4px;margin:6px 0;overflow:hidden">'+th+(g.ids.length>6?'<span class="hint" style="align-self:center">+'+(g.ids.length-6)+'</span>':'')+'</div>'+
+      '<button class="btn '+(pl?'btn-s':'btn-g')+' btn-block" style="text-align:left" onclick="tgPick('+gi+')">📍 '+(pl?esc(pl.name):'Choose a place…')+'</button>'+
+      (!pl&&g.sug?'<button class="chip" style="margin-top:6px" onclick="tgUseSug('+gi+')">＋ Use “'+esc(g.sug.name)+'”'+(g.sug.address?' <span class="hint">'+esc(g.sug.address.slice(0,40))+'</span>':'')+'</button>':'')+
+      '</div>';}).join('');
+  var ready=TG.groups.filter(function(g){return g.place;}).length;
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(2);TG=null">Cancel</button><button class="btn btn-p" '+(TG.groups.length?'':'disabled')+' onclick="tgDeploy()">🚀 Deploy '+TG.groups.length+' group'+(TG.groups.length===1?'':'s')+(ready<TG.groups.length?' ('+(TG.groups.length-ready)+' without place)':'')+'</button></div>';
+  var st=$('tg-b')?$('tg-b').scrollTop:0;openModal(h,2);var b=$('tg-b');if(b)b.scrollTop=st;
+}
+function tgPick(gi){
+  var g=TG.groups[gi];
+  openPlacePicker(function(id){if(!TG)return;g.place=id;
+    // other groups at the same spot (different day) are the same store — fill them too
+    if(!g.none)TG.groups.forEach(function(o){if(!o.none&&!o.place&&_tgDist(o,g)<TG_RADIUS)o.place=id;});rTG();});
+  // start from the group's spot: your saved places nearest first, plus the opt-in 📍 Nearby lookup
+  if(!g.none&&PP){PP.loc={lat:g.lat,lng:g.lng};ppSavedNearby();}
+}
+function tgUseSug(gi){
+  var g=TG.groups[gi],s=g.sug;if(!s)return;
+  var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===s.name.toLowerCase()&&(p.lat==null||_tgDist(p,g)<TG_RADIUS*2);});
+  var id=ex?ex.id:'pl_'+gid();
+  if(!ex)put('places',{id:id,name:s.name,address:s.address||'',lat:s.lat!=null?s.lat:g.lat,lng:s.lng!=null?s.lng:g.lng,created:now()});
+  g.place=id;TG.groups.forEach(function(o){if(!o.none&&!o.place&&_tgDist(o,g)<TG_RADIUS)o.place=id;});rTG();
+}
+function tgDeploy(){
+  var groups=TG.groups.filter(function(g){return g.ids.some(function(id){return S.tray[id];});}),by=TG.by.slice(),n=0,ng=0;
+  if(groups.some(function(g){return!g.place;})&&!confirm('Some groups have no place — deploy those without a place?'))return;
+  groups.forEach(function(g){
+    // deploy exactly this group through the normal deploy path (own photo dates, merge-by-name, sightings)
+    trayList().forEach(function(t){var want=g.ids.indexOf(t.id)>=0;if(!!t.sel!==want){var x=clone(t);x.sel=want;put('tray',x);}});
+    var cnt=g.ids.filter(function(id){return S.tray[id];}).length;if(!cnt)return;
+    TA2={date:g.date||tod(),own:true,place:g.place||'',by:by,folders:[],parent:'',cat:'',spotted:true,merge:true,n:cnt,nDated:cnt};
+    trayCreate();n+=cnt;ng++;
+  });
+  TG=null;closeModal(2);
+  toast('🚀 Deployed '+n+' item'+(n===1?'':'s')+' across '+ng+' place'+(ng===1?'':'s'),4500);
+  if(trayList().length)openTray();
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
