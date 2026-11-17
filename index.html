@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.23';
+var APP_VERSION='v2.24';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -3480,7 +3480,11 @@ function rTray(){
         '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
   }
   h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button>'+(list.some(function(t){return t.sel&&t.lat!=null;})?'<button class="btn btn-s" onclick="openTrayGroups()">📍 By place</button>':'')+'<button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
-  var st=$('tray-b')?$('tray-b').scrollTop:0;openModal(h,1);var b=$('tray-b');if(b)b.scrollTop=st;
+  var st=$('tray-b')?$('tray-b').scrollTop:0;
+  // something open on top (review, deploy, menu)? refresh the tray underneath without closing it
+  var l1=$('mo-l1'),above=$('mo-l2')||$('mo-l3')||$('mo-l4');
+  if(l1&&above&&l1.querySelector('#tray-b')){var mo=l1.querySelector('.mo');mo.innerHTML=h;hydrate(l1);var b2=$('tray-b');if(b2)b2.scrollTop=st;return;}
+  openModal(h,1);var b=$('tray-b');if(b)b.scrollTop=st;
 }
 function trayToggle(id){var t=clone(S.tray[id]);t.sel=!t.sel;put('tray',t);rTray();}
 function traySelAll(on){trayList().forEach(function(t){if(!!t.sel!==!!on){var x=clone(t);x.sel=!!on;put('tray',x);}});rTray();}
@@ -4047,9 +4051,11 @@ function rBidReview(){
     '<div class="hint" style="margin-bottom:8px">Check each guess — tap an alternative to use it, or type a fix. 🔎 opens a StockX search to double-check.</div>';
   h+=BIDR.rows.map(function(w,i){var t=S.tray[w.id],d=trayDraft(t),c=w.r.confidence,col=c>=0.75?'#16a34a':c>=0.45?'#d97706':'#dc2626';
     return'<div class="sec" style="padding:8px;margin-bottom:8px"><div class="row" style="gap:8px;align-items:flex-start">'+
-      '<input type="checkbox" id="bid-u'+i+'" '+(w.use?'checked':'')+' style="margin-top:22px">'+
+      '<input type="checkbox" id="bid-u'+i+'" '+(w.use?'checked':'')+' style="margin-top:22px" onchange="_bidCap();rBidReview()">'+
       '<div class="tray-img" style="width:64px;height:64px;flex-shrink:0">'+imgHTML(d.img)+'</div>'+
-      '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><span style="font-size:11px;font-weight:800;color:'+col+'">'+Math.round(c*100)+'%</span>'+(d.name?'<span class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">was: '+esc(d.name)+'</span>':'')+'</div>'+
+      '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><span style="font-size:11px;font-weight:800;color:'+col+'">'+Math.round(c*100)+'%</span>'+(d.name?'<span class="hint" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">was: '+esc(d.name)+'</span>':'<span style="flex:1"></span>')+
+        '<button class="btn btn-g btn-sm" style="padding:3px 8px" title="Discard this guess" onclick="bidDiscard('+i+')">✕</button>'+
+        '<button class="btn btn-p btn-sm" style="padding:3px 10px" onclick="bidApply('+i+')">✓ Apply</button></div>'+
       '<div class="row" style="gap:4px;margin-top:3px"><input class="m-in" id="bid-n'+i+'" style="flex:1;min-width:0;padding:7px 8px;font-size:13px" value="'+esc(w.name)+'">'+
       '<button class="icon-btn" title="Paste a copied StockX link or share text into this one" onclick="bidPasteRow('+i+')">📋</button>'+
       '<button class="icon-btn" title="Find on StockX, then Share → Spotted to link it here" onclick="_bidCap();bidFindOnStockx(\''+w.id+'\',$(\'bid-n'+i+'\').value)">🔎</button></div>'+
@@ -4061,15 +4067,17 @@ function rBidReview(){
   h+='<label class="row" style="gap:6px;margin:6px 0"><input type="checkbox" id="bid-photo" '+(BIDR.photo?'checked':'')+'> Also get each one\'s StockX product photo (yours stays as Original)</label>'+
     '<label class="row" style="gap:6px;margin:6px 0"><input type="checkbox" id="bid-pend" '+(BIDR.pend?'checked':'')+'> Mark guesses under 45% as ❓ Pending ID</label>';
   var n=BIDR.rows.filter(function(w){return w.use;}).length;
-  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3);BIDR=null">Cancel</button><button class="btn btn-p" onclick="bidApply()">✓ Apply names</button></div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="_bidCap();bidSaveEdits();closeModal(3);BIDR=null">Later</button><button class="btn btn-p" '+(n?'':'disabled')+' onclick="bidApply()">✓ Apply '+n+' ticked</button></div>';
   var st=$('bid-b')?$('bid-b').scrollTop:0;openModal(h,3);var b=$('bid-b');if(b)b.scrollTop=st;
 }
 function _bidSlug(n){return String(n||'').toLowerCase().replace(/\(women's\)|\bwomen's\b/g,' womens ').replace(/['’]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
-function bidApply(){
-  _bidCap();L.bidPhoto=BIDR.photo;L.bidPend=BIDR.pend;svL();
+function bidApply(onlyIdx){
+  _bidCap();var single=typeof onlyIdx==='number',applied={};L.bidPhoto=BIDR.photo;L.bidPend=BIDR.pend;svL();
   var n=0,photos=[];
-  BIDR.rows.forEach(function(w){if(!S.tray[w.id])return;var nm=(w.name||'').trim();
-    if(!w.use||!nm){var y=clone(S.tray[w.id]);delete y.idRes;put('tray',y);return;}
+  BIDR.rows.forEach(function(w,ri){if(!S.tray[w.id])return;var nm=(w.name||'').trim();
+    if(single?ri!==onlyIdx:!w.use)return;          // not this one → stays in the queue
+    if(!nm)return toast('Type a name first');
+    applied[w.id]=1;
     var x=clone(S.tray[w.id]);x.draft=trayDraft(x);delete x.idRes;
     var low=BIDR.pend&&w.r.confidence<0.45&&nm.indexOf('❓')!==0;
     x.draft.name=low?'❓ '+nm:nm;x.draft.srcTitle=nm;if(low)x.draft.mystery=true;
@@ -4078,8 +4086,13 @@ function bidApply(){
     put('tray',x);n++;
     if(w.r.link){var ls=itemLinks(x.draft);if(!ls.some(function(l){return l.url===w.r.link;}))ls.push({url:w.r.link});x.draft.links=ls;delete x.draft.link;put('tray',x);}
     if(BIDR.photo&&(!low||w.r.link))photos.push({id:w.id,name:nm,url:w.r.link||''});});
-  closeModal(3);BIDR=null;BID.st={};BID.total=0;rTray();render();
-  toast('🏷 '+n+' named'+(photos.length?' · looking up '+photos.length+' StockX photo'+(photos.length===1?'':'s')+'…':''),3500);
+  // keep what you typed on the rows still waiting, so a refresh doesn't lose it
+  BIDR.rows.forEach(function(w){if(applied[w.id]||!S.tray[w.id]||!S.tray[w.id].idRes)return;var x=clone(S.tray[w.id]);if((w.name||'')!==x.idRes.name||w.r.link!==x.idRes.link){x.idRes.name=w.name;if(w.r.link)x.idRes.link=w.r.link;put('tray',x);}});
+  BIDR.rows=BIDR.rows.filter(function(w){return!applied[w.id]&&S.tray[w.id]&&S.tray[w.id].idRes;});
+  BID.st={};BID.total=0;render();
+  if(BIDR.rows.length){rBidReview();if(TRY)setTimeout(function(){},0);}else{closeModal(3);BIDR=null;rTray();}
+  var left=BIDR?BIDR.rows.length:0;
+  if(n)toast('🏷 '+(single?'Applied'+(left?' — '+left+' still to review':''):n+' named'+(left?' · '+left+' still to review':''))+(photos.length?' · looking up '+photos.length+' StockX photo'+(photos.length===1?'':'s')+'…':''),3500);
   // one at a time so the free page readers aren't hammered
   var i=0;(function next(){if(i>=photos.length){if(photos.length&&TRY)rTray();return;}var p=photos[i++];bidStockxPhoto(p.id,p.name,p.url).then(next,next);})();
 }
@@ -4129,6 +4142,16 @@ function bidPasteRow(i){
     rBidReview();toast('🔗 Linked: '+w.name,2500);};
   if(navigator.clipboard&&navigator.clipboard.readText)navigator.clipboard.readText().then(use).catch(function(){use('');});else use('');
 }
+
+function bidDiscard(i){
+  _bidCap();var w=BIDR.rows[i];if(!w)return;
+  var cur=S.tray[w.id];if(cur){var x=clone(cur);delete x.idRes;put('tray',x);}
+  BIDR.rows.splice(i,1);
+  if(BIDR.rows.length)rBidReview();else{closeModal(3);BIDR=null;rTray();}
+  toast('Guess discarded — the draft stays in the tray');
+}
+
+function bidSaveEdits(){if(!BIDR)return;BIDR.rows.forEach(function(w){var cur=S.tray[w.id];if(!cur||!cur.idRes)return;if((w.name||'')!==cur.idRes.name||w.r.link!==cur.idRes.link){var x=clone(cur);x.idRes.name=w.name;if(w.r.link)x.idRes.link=w.r.link;put('tray',x);}});}
 
 // ════════════ 📍 GROUP BY PLACE — cluster tray drafts by photo GPS + day, deploy each group to its own place ════════════
 var TG=null,TG_REV={};
