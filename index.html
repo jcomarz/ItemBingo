@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.15';
+var APP_VERSION='v2.17';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1297,7 +1297,8 @@ function openItemModal(id,opts){
   if(opts.trayId&&S.tray[opts.trayId]){var tdr=trayDraft(S.tray[opts.trayId]);
     IM={id:null,isNew:true,draft:true,trayId:opts.trayId,f:clone(tdr),vers:[],cur:0,ctx:null,first:{date:tod(),by:[L.me],place:'',note:''},logFirst:false};
     IM.f.imgs=IM.f.imgs||[];IM.f.folders=IM.f.folders||[];IM.f.traits=IM.f.traits||{};
-    if(tdr.img)IM.vers.push({k:tdr.img,label:'Current'});
+    if(tdr.img)IM.vers.push({k:tdr.img,label:tdr.aiShot?'AI shot':'Current'});
+    if(tdr.orig&&tdr.orig!==tdr.img)IM.vers.push({k:tdr.orig,label:'Original'});
     IM.fromView=false;IM.addImgs=[];rItem();return;}
   if(id&&S.items[id]){
     var it=S.items[id];
@@ -2569,7 +2570,7 @@ function idRun(){
   if(ID.photo)resizeData(ID.photo,1024,'jpeg',0.85).then(send);else send(null);
 }
 function _claudeID(sys,user,img,cb){
-  var content=[];if(img)content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}});content.push({type:'text',text:user});
+  var content=[];(img?(Array.isArray(img)?img:[img]):[]).forEach(function(im,k){if(Array.isArray(img))content.push({type:'text',text:'Photo '+(k+1)+':'});content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:im.split(',')[1]}});});content.push({type:'text',text:user});
   fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':aiKeyClaude(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
     body:JSON.stringify({model:(L.claudeModel||'claude-sonnet-5-5').trim(),max_tokens:3000,system:sys,messages:[{role:'user',content:content}]})})
   .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error((j.error&&j.error.message)||('Claude HTTP '+r.status));return j;});})
@@ -2578,7 +2579,7 @@ function _claudeID(sys,user,img,cb){
 // Free-tier quotas differ per model and Google Search grounding often has none,
 // so on a quota/404 error walk down a list of cheaper models (without search) until one answers.
 function _geminiID(sys,user,img,cb){
-  var parts=[];if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img.split(',')[1]}});parts.push({text:user});
+  var parts=[];(img?(Array.isArray(img)?img:[img]):[]).forEach(function(im,k){if(Array.isArray(img))parts.push({text:'Photo '+(k+1)+':'});parts.push({inline_data:{mime_type:'image/jpeg',data:im.split(',')[1]}});});parts.push({text:user});
   var first=(L.geminiTextModel||'gemini-flash-latest').trim();
   var chain=[[first,true],[first,false]];
   [L.geminiTextOK,'gemini-flash-lite-latest','gemini-2.5-flash','gemini-2.5-flash-lite','gemini-flash-latest'].forEach(function(m){if(m&&!chain.some(function(c){return c[0]===m&&!c[1];}))chain.push([m,false]);});
@@ -2597,7 +2598,7 @@ function _geminiID(sys,user,img,cb){
       var p=((j.candidates||[])[0]||{}).content,txt=(p&&p.parts||[]).map(function(x){return x.text||'';}).join('');
       if(!txt){lastErr='empty reply from '+m;return go();}
       if(L.geminiTextOK!==m){L.geminiTextOK=m;svL();}
-      ID.via=m+(useSearch?' + Google Search':'');
+      if(typeof ID==='object'&&ID)ID.via=m+(useSearch?' + Google Search':'');
       cb(null,txt);});}).catch(function(e){lastErr=e.message||String(e);go();});
   })();
 }
@@ -3463,12 +3464,17 @@ function rTray(){
   if(!list.length)h+='<div class="empty" style="padding:24px"><div class="big">📥</div>No drafts yet.</div>';
   else{
     h+='<div class="hint" style="margin:0 0 6px">Several stores? Tick one store\'s drafts → Deploy with that place. The rest stay here for the next one.</div>';
-    h+='<div class="row" style="margin-bottom:6px"><b style="flex:1;font-size:13px">'+nsel+' selected</b><button class="btn btn-g btn-sm" onclick="traySelAll('+(nsel<list.length?1:0)+')">'+(nsel<list.length?'Select all':'Select none')+'</button></div>';
+    if(BID.running)h+='<div class="sec" style="padding:8px 10px;margin-bottom:6px"><b style="font-size:13px">🔎 Identifying… '+BID.done+'/'+BID.total+'</b><div style="height:5px;background:var(--paperGrid);border-radius:3px;margin-top:6px;overflow:hidden"><div style="height:100%;width:'+Math.round(BID.done/Math.max(1,BID.total)*100)+'%;background:var(--ink)"></div></div></div>';
+    else if(BID.total&&Object.keys(BID.res).length)h+='<button class="btn btn-p btn-block" style="margin-bottom:6px" onclick="openBidReview()">🔎 Review '+Object.keys(BID.res).length+' identified names →</button>';
+    if(BAI.running||BAI.total)h+='<div class="sec" style="padding:8px 10px;margin-bottom:6px"><div class="row" style="gap:8px;align-items:center"><b style="flex:1;font-size:13px">✨ '+(BAI.running?'Making product shots… ':'Product shots: ')+BAI.done+'/'+BAI.total+(BAI.fail?' · '+BAI.fail+' failed':'')+'</b>'+
+      (BAI.running?'<button class="btn btn-g btn-sm" onclick="BAI.stop=true;toast(\'Stopping after the current ones…\')">Stop</button>':'<button class="btn btn-g btn-sm" onclick="BAI.total=0;BAI.st={};rTray()">✕</button>')+'</div>'+
+      '<div style="height:5px;background:var(--paperGrid);border-radius:3px;margin-top:6px;overflow:hidden"><div style="height:100%;width:'+Math.round((BAI.done+BAI.fail)/Math.max(1,BAI.total)*100)+'%;background:var(--ink)"></div></div></div>';
+    h+='<div class="row" style="margin-bottom:6px"><b style="flex:1;font-size:13px">'+nsel+' selected</b><button class="btn btn-s btn-sm" '+(nsel&&!BID.running?'':'disabled')+' onclick="openBatchID()">🔎 Identify</button><button class="btn btn-s btn-sm" '+(nsel&&!BAI.running?'':'disabled')+' onclick="openBatchAI()">✨ Shots</button><button class="btn btn-g btn-sm" onclick="traySelAll('+(nsel<list.length?1:0)+')">'+(nsel<list.length?'Select all':'Select none')+'</button></div>';
     h+=list.map(function(t){var d=trayDraft(t),m=t.match&&S.items[t.match],c=cat(d.cat),lp=d.parent&&S.refs[d.parent];
       return'<div class="tray-row'+(t.sel?' on':'')+'"><button class="tray-chk" onclick="trayToggle(\''+t.id+'\')">'+(t.sel?'✓':'')+'</button>'+
         '<div class="tray-img" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})">'+(d.img?imgHTML(d.img):'<div class="thumb" style="width:100%;height:100%">'+(c?c.icon:'📦')+'</div>')+'</div>'+
         '<div style="flex:1;min-width:0" onclick="closeModal(1);openItemModal(null,{trayId:\''+t.id+'\'})"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(d.name||'Untitled')+'</div>'+
-        '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:'',t.fetching?'⏳ getting photo…':'',t.nophoto&&!d.img?'📷 needs photo':''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
+        '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:'',t.fetching?'⏳ getting photo…':'',baiStatusHTML(t),bidStatusHTML(t),d.aiShot&&!BAI.st[t.id]?'✨':'',t.nophoto&&!d.img?'📷 needs photo':''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
         '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
   }
   h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button><button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
@@ -3887,6 +3893,173 @@ function stockxPageImage(u){
       .catch(function(e){clearTimeout(tm);console.warn('[Spotted] StockX page lookup via '+src.n+' failed:',e&&e.message);return next();});
   };
   return next();
+}
+
+// ════════════ ✨ BATCH PRODUCT SHOTS — run the AI product shot over many tray drafts at once ════════════
+// Uses the same provider/key/prompt as the single "AI product shot" button (Settings → AI).
+// Two at a time; each draft keeps its photo as the "Original" version so you can switch back in the editor.
+var BAI={running:false,stop:false,st:{},done:0,fail:0,total:0};
+var BAI_PRICE={gemini:0.067,openai:0.05};   // rough per-image estimates, shown before running
+function baiCandidates(){return trayList().filter(function(t){var d=trayDraft(t);return t.sel&&d.img;});}
+function baiStatusHTML(t){var s=BAI.st[t.id];if(!s)return'';
+  return s==='run'?'✨ making product shot…':s==='ok'?'✨ product shot ✓':s==='skip'?'':'⚠️ '+s;}
+function openBatchAI(){
+  if(BAI.running)return toast('Already running — '+BAI.done+'/'+BAI.total);
+  var list=baiCandidates(),prov=L.aiProvider||'gemini',key=prov==='openai'?L.openaiKey:L.geminiKey;
+  if(!list.length)return toast('Select drafts that have a photo');
+  var redo=list.filter(function(t){return trayDraft(t).aiShot;}).length;
+  var est=(list.length*(BAI_PRICE[prov]||0.06));
+  var h='<div class="mo-h"><h3>✨ Product shots</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">'+
+    (!key?'<div class="sec" style="border-color:var(--bad)"><b>No '+(prov==='openai'?'OpenAI':'Gemini')+' API key yet.</b><div class="hint">Add it in Settings → AI. Image generation through the API is billed to the key\'s Google Cloud project — it is separate from your Gemini app plan.</div></div>':'')+
+    '<p style="margin:0 0 8px">Turn <b>'+list.length+'</b> selected draft photo'+(list.length===1?'':'s')+' into white-background product shots with '+(prov==='openai'?'OpenAI':'Gemini')+'.</p>'+
+    '<div class="hint" style="margin-bottom:8px">≈ <b>$'+est.toFixed(2)+'</b> total (about $'+(BAI_PRICE[prov]||0.06).toFixed(3)+' per image), billed to your API key — not your Gemini app plan. Runs 2 at a time; keep Spotted open until it finishes.</div>'+
+    (redo?'<label class="row" style="gap:6px;margin-bottom:6px"><input type="checkbox" id="bai-redo"> Redo the '+redo+' that already have an AI shot</label>':'')+
+    '<div class="hint">Each draft keeps your photo as the <b>Original</b> version — open the draft to switch back if a shot comes out wrong.</div>'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3)">Cancel</button><button class="btn btn-p" '+(key?'':'disabled')+' onclick="var r=$(\'bai-redo\');closeModal(3);runBatchAI(r&&r.checked)">✨ Make '+list.length+'</button></div>';
+  openModal(h,3);
+}
+function runBatchAI(redo){
+  var q=baiCandidates().filter(function(t){return redo||!trayDraft(t).aiShot;});
+  if(!q.length)return toast('Those all have AI shots already');
+  BAI={running:true,stop:false,st:{},done:0,fail:0,total:q.length};
+  q.forEach(function(t){BAI.st[t.id]='wait';});
+  if(TRY)rTray();
+  var idx=0,finished=0;
+  var finishAll=function(){BAI.running=false;if(TRY)rTray();render();
+    toast('✨ '+BAI.done+' product shot'+(BAI.done===1?'':'s')+' made'+(BAI.fail?' · '+BAI.fail+' failed':'')+(BAI.stop?' · stopped':''),5000);};
+  var worker=function(){
+    if(BAI.stop||idx>=q.length){if(++finished===2)finishAll();return;}
+    var t=q[idx++],cur=S.tray[t.id];if(!cur){return worker();}
+    var d=trayDraft(cur),src=d.orig&&d.aiShot?d.orig:d.img;
+    BAI.st[t.id]='run';if(TRY)rTray();
+    var attempt=function(n){
+      return new Promise(function(res){imgGet(src,function(v){res(v);});}).then(function(data){if(!data)throw new Error('photo not on this device yet');return aiProductShot(data,productPrompt(d.name,d.cat||effCat(S.refs[d.parent]||{})));})
+        .catch(function(e){if(e&&e.message==='RATE'&&n<2)return new Promise(function(r){setTimeout(r,20000);}).then(function(){return attempt(n+1);});throw e;});
+    };
+    attempt(0).then(function(shot){return tidyMaybe(shot);}).then(function(shot){return resizeData(shot,1000,'webp',0.9);}).then(function(shot){
+      var now2=S.tray[t.id];if(!now2)return;var x=clone(now2);x.draft=trayDraft(x);
+      if(!x.draft.orig||!x.draft.aiShot)x.draft.orig=x.draft.img;   // keep your photo as "Original"
+      x.draft.img=imgSave(shot);x.draft.aiShot=1;put('tray',x);
+      BAI.st[t.id]='ok';BAI.done++;
+    }).catch(function(e){
+      BAI.fail++;BAI.st[t.id]=(e&&e.friendly)?e.friendly.split('\n')[0]:((e&&e.message)||'failed').slice(0,80);
+      if(e&&e.message==='NOBILLING'){BAI.stop=true;alert(e.friendly);}           // no point continuing
+    }).then(function(){if(TRY)rTray();worker();});
+  };
+  worker();worker();
+}
+
+// ════════════ 🔎 BATCH IDENTIFY — name many tray drafts from their photos at once ════════════
+// Sends the photos 4 per request to the identify AI (Gemini's free text allowance, or Claude), gets back
+// a StockX-style name + confidence + alternatives for each, then lets you review before anything changes.
+var BID={running:false,st:{},res:{},done:0,total:0,err:''};
+var BID_CHUNK=4;
+var BID_SYS='You identify items (mostly sneakers, also clothing and collectibles) from a collector\'s quick snapshots taken in stores and on the street. '+
+  'For EACH photo, in the order given, name the single most prominent item using the exact naming style StockX uses: Brand Model Colorway-nickname, '+
+  'e.g. "Nike Dunk Low Retro White Black (2021)", "Jordan 1 Retro High OG Chicago Lost and Found", "New Balance 990v6 Made in USA Grey", "ASICS Gel-1130 White Pure Silver". '+
+  'Use visible text, logos, tags, box labels and style codes. Do not invent a colorway nickname you are unsure of — describe the colors plainly instead and lower the confidence. '+
+  'If a photo shows several different items, name the most prominent and list the others in "others". '+
+  'Reply with ONLY a JSON array, one object per photo, no prose: '+
+  '[{"photo":1,"name":"…","brand":"…","model":"…","colorway":"…","sku":"style code if readable else empty","confidence":0.0-1.0,"alts":["up to 2 other likely names"],"others":["other items in the photo"],"why":"short clue you used"}]';
+function bidCandidates(){return trayList().filter(function(t){return t.sel&&trayDraft(t).img;});}
+function bidStatusHTML(t){var s=BID.st[t.id];return!s?'':s==='run'?'🔎 identifying…':s==='ok'?'🔎 ✓ '+Math.round(((BID.res[t.id]||{}).confidence||0)*100)+'%':'⚠️ '+s;}
+function _bidImg(k){return new Promise(function(res){imgGet(k,function(v){res(v);});}).then(function(d){if(!d)throw new Error('photo not on this device yet');return resizeData(d,768,'jpeg',0.85);});}
+function _bidParse(txt){
+  var t=String(txt||'').replace(/^```(?:json)?/i,'').replace(/```\s*$/,'').trim(),a=t.indexOf('['),b=t.lastIndexOf(']');
+  if(a<0||b<a)throw new Error('AI reply wasn\'t a list');var arr=JSON.parse(t.slice(a,b+1));if(!Array.isArray(arr))throw new Error('AI reply wasn\'t a list');return arr;
+}
+function openBatchID(){
+  if(BID.running)return toast('Already identifying — '+BID.done+'/'+BID.total);
+  var list=bidCandidates();if(!list.length)return toast('Select drafts that have a photo');
+  var prov=idProvider();
+  if(!prov){var h='<div class="mo-h"><h3>🔎 Identify</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b"><p>Add a <b>Gemini API key</b> (or Claude key) in Settings → AI.</p><div class="hint">Identifying is a text answer, which Gemini\'s free allowance covers — unlike making images. Free limits are per minute/day, so very big batches may need a pause.</div></div>';return openModal(h,3);}
+  runBatchID(list);
+}
+function runBatchID(list){
+  var prov=idProvider();
+  BID={running:true,st:{},res:{},done:0,total:list.length,err:'',via:prov};
+  list.forEach(function(t){BID.st[t.id]='wait';});if(TRY)rTray();
+  var chunks=[];for(var i=0;i<list.length;i+=BID_CHUNK)chunks.push(list.slice(i,i+BID_CHUNK));
+  var ci=0;
+  var nextChunk=function(){
+    if(ci>=chunks.length){BID.running=false;if(TRY)rTray();return openBidReview();}
+    var ch=chunks[ci++];ch.forEach(function(t){BID.st[t.id]='run';});if(TRY)rTray();
+    Promise.all(ch.map(function(t){return _bidImg(trayDraft(t).img).catch(function(){return null;});})).then(function(imgs){
+      var ok=[],okT=[];imgs.forEach(function(im,k){if(im){ok.push(im);okT.push(ch[k]);}else{BID.st[ch[k].id]='photo missing';BID.done++;}});
+      if(!ok.length)return nextChunk();
+      var user='Identify each of these '+ok.length+' photo'+(ok.length===1?'':'s')+'. Return exactly '+ok.length+' objects in order.';
+      var call=prov==='claude'?_claudeID:_geminiID;
+      call(BID_SYS,user,ok,function(e,txt){
+        var arr=null;if(!e){try{arr=_bidParse(txt);}catch(x){e=x;}}
+        okT.forEach(function(t,k){BID.done++;
+          if(e){BID.st[t.id]=(e.message||'failed').slice(0,70);return;}
+          var r=arr.find(function(o){return +o.photo===k+1;})||arr[k];
+          if(!r||!r.name){BID.st[t.id]='no answer';return;}
+          r.confidence=Math.max(0,Math.min(1,+r.confidence||0));BID.res[t.id]=r;BID.st[t.id]='ok';});
+        if(e&&!BID.err)BID.err=e.message||String(e);
+        if(TRY)rTray();
+        setTimeout(nextChunk,prov==='gemini'?1500:300);   // stay under free per-minute limits
+      });
+    });
+  };
+  nextChunk();
+}
+// ── review: edit names, pick alternatives, then apply ──
+var BIDR=null;
+function openBidReview(){
+  var ids=Object.keys(BID.res).filter(function(id){return S.tray[id];});
+  if(!ids.length){toast(BID.err?'Identify failed: '+BID.err.slice(0,120):'Nothing identified',5000);return;}
+  BIDR={rows:ids.map(function(id){var r=BID.res[id];return{id:id,name:r.name,use:true,r:r};}),photo:L.bidPhoto!==false,pend:L.bidPend!==false};
+  rBidReview();
+}
+function _bidCap(){if(!BIDR)return;BIDR.rows.forEach(function(w,i){var e=$('bid-n'+i);if(e)w.name=e.value;var c=$('bid-u'+i);if(c)w.use=c.checked;});var p=$('bid-photo');if(p)BIDR.photo=p.checked;var q=$('bid-pend');if(q)BIDR.pend=q.checked;}
+function rBidReview(){
+  var h='<div class="mo-h"><h3>🔎 Review names</h3><button class="icon-btn" onclick="closeModal(3);BIDR=null">✕</button></div><div class="mo-b" id="bid-b">'+
+    '<div class="hint" style="margin-bottom:8px">Check each guess — tap an alternative to use it, or type a fix. 🔎 opens a StockX search to double-check.</div>';
+  h+=BIDR.rows.map(function(w,i){var t=S.tray[w.id],d=trayDraft(t),c=w.r.confidence,col=c>=0.75?'#16a34a':c>=0.45?'#d97706':'#dc2626';
+    return'<div class="sec" style="padding:8px;margin-bottom:8px"><div class="row" style="gap:8px;align-items:flex-start">'+
+      '<input type="checkbox" id="bid-u'+i+'" '+(w.use?'checked':'')+' style="margin-top:22px">'+
+      '<div class="tray-img" style="width:64px;height:64px;flex-shrink:0">'+imgHTML(d.img)+'</div>'+
+      '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><span style="font-size:11px;font-weight:800;color:'+col+'">'+Math.round(c*100)+'%</span>'+(d.name?'<span class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">was: '+esc(d.name)+'</span>':'')+'</div>'+
+      '<div class="row" style="gap:4px;margin-top:3px"><input class="m-in" id="bid-n'+i+'" style="flex:1;min-width:0;padding:7px 8px;font-size:13px" value="'+esc(w.name)+'">'+
+      '<button class="icon-btn" title="Check on StockX" onclick="_bidCap();openLink(\'https://stockx.com/search?s=\'+encodeURIComponent($(\'bid-n'+i+'\').value),\'web\')">🔎</button></div>'+
+      ((w.r.alts||[]).length?'<div class="chips" style="flex-wrap:wrap;margin-top:4px">'+w.r.alts.slice(0,2).map(function(a,k){return'<button class="chip" style="font-size:11px" onclick="_bidCap();BIDR.rows['+i+'].name=BIDR.rows['+i+'].r.alts['+k+'];rBidReview()">'+esc(a)+'</button>';}).join('')+'</div>':'')+
+      (w.r.others&&w.r.others.length?'<div class="hint" style="margin-top:3px">Also in photo: '+esc(w.r.others.join(', '))+'</div>':'')+
+      (w.r.why?'<div class="hint" style="margin-top:2px;font-size:11px">'+esc(w.r.why)+'</div>':'')+
+      '</div></div></div>';}).join('');
+  h+='<label class="row" style="gap:6px;margin:6px 0"><input type="checkbox" id="bid-photo" '+(BIDR.photo?'checked':'')+'> Also get each one\'s StockX product photo (yours stays as Original)</label>'+
+    '<label class="row" style="gap:6px;margin:6px 0"><input type="checkbox" id="bid-pend" '+(BIDR.pend?'checked':'')+'> Mark guesses under 45% as ❓ Pending ID</label>';
+  var n=BIDR.rows.filter(function(w){return w.use;}).length;
+  h+='</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3);BIDR=null">Cancel</button><button class="btn btn-p" onclick="bidApply()">✓ Apply names</button></div>';
+  var st=$('bid-b')?$('bid-b').scrollTop:0;openModal(h,3);var b=$('bid-b');if(b)b.scrollTop=st;
+}
+function _bidSlug(n){return String(n||'').toLowerCase().replace(/\(women's\)|\bwomen's\b/g,' womens ').replace(/['’]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
+function bidApply(){
+  _bidCap();L.bidPhoto=BIDR.photo;L.bidPend=BIDR.pend;svL();
+  var n=0,photos=[];
+  BIDR.rows.forEach(function(w){if(!w.use||!S.tray[w.id])return;var nm=(w.name||'').trim();if(!nm)return;
+    var x=clone(S.tray[w.id]);x.draft=trayDraft(x);
+    var low=BIDR.pend&&w.r.confidence<0.45&&nm.indexOf('❓')!==0;
+    x.draft.name=low?'❓ '+nm:nm;x.draft.srcTitle=nm;if(low)x.draft.mystery=true;
+    if(w.r.sku&&!/style code/i.test(x.draft.notes||''))x.draft.notes=((x.draft.notes||'')+(x.draft.notes?'\n':'')+'Style code: '+w.r.sku).trim();
+    if(!x.draft.parent){var par=autoFolderFor(nm);if(par){x.draft.parent=par;if(!x.draft.cat)x.draft.cat=effCat(S.refs[par]);}}
+    put('tray',x);n++;
+    if(BIDR.photo&&!low)photos.push({id:w.id,name:nm});});
+  closeModal(3);BIDR=null;BID.st={};BID.total=0;rTray();render();
+  toast('🏷 '+n+' named'+(photos.length?' · looking up '+photos.length+' StockX photo'+(photos.length===1?'':'s')+'…':''),3500);
+  // one at a time so the free page readers aren't hammered
+  var i=0;(function next(){if(i>=photos.length){if(photos.length&&TRY)rTray();return;}var p=photos[i++];bidStockxPhoto(p.id,p.name).then(next,next);})();
+}
+// guess the StockX page from the name, pull its product shot; your photo becomes "Original"
+function bidStockxPhoto(tid,name){
+  var u='https://stockx.com/'+_bidSlug(name),t=S.tray[tid];if(!t)return Promise.resolve();
+  var x0=clone(t);x0.fetching=1;put('tray',x0);if(TRY)rTray();
+  return stockxFetchImage(u,name).then(function(d){return tidyMaybe(d);}).then(function(d){return resizeData(d,800,'webp',0.88);}).then(function(d){
+    var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.draft=trayDraft(x);
+    if(x.draft.img&&x.draft.img!==x.draft.orig)x.draft.orig=x.draft.img;
+    x.draft.img=imgSave(d);var ls=itemLinks(x.draft);if(!ls.some(function(l){return l.url===u;}))ls.push({url:u});x.draft.links=ls;delete x.draft.link;
+    x.fetching=0;put('tray',x);if(TRY)rTray();
+  }).catch(function(){var cur=S.tray[tid];if(!cur)return;var x=clone(cur);x.fetching=0;put('tray',x);if(TRY)rTray();});
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
