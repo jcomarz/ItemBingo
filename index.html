@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.37';
+var APP_VERSION='v2.38';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -4099,12 +4099,12 @@ function openBidReview(){
 function _bidCap(){if(!BIDR)return;BIDR.rows.forEach(function(w,i){var e=$('bid-n'+i);if(e){if(/https?:\/\//i.test(e.value)){var sp=linkShareParse(e.value);if(sp.url){w.r.link=sp.url;e.value=sp.name||linkSlugName(sp.url)||w.name;}}w.name=e.value;}var c=$('bid-u'+i);if(c)w.use=c.checked;});var p=$('bid-photo');if(p)BIDR.photo=p.checked;var q=$('bid-pend');if(q)BIDR.pend=q.checked;}
 function rBidReview(){
   var h='<div class="mo-h"><h3>🔎 Review names</h3><button class="icon-btn" onclick="closeModal(3);BIDR=null">✕</button></div><div class="mo-b" id="bid-b">'+
-    '<div class="hint" style="margin-bottom:6px">Check each guess — tap an alternative to use it, or type a fix. 🔍 opens the photo in Google Lens · 📋 pastes a copied StockX link · 🔎 searches StockX.</div>'+
+    '<div class="hint" style="margin-bottom:6px">Check each guess — tap an alternative to use it, or type a fix. Tap a photo to view it full screen for Circle to Search · 🔍 shares it to Google Lens · 📋 pastes a copied StockX link · 🔎 searches StockX.</div>'+
     '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><button class="btn btn-s btn-sm" onclick="bidRedo(false)">↻ Redo ticked guesses</button><button class="btn btn-g btn-sm" onclick="bidTickAll(true)">Select all</button><button class="btn btn-g btn-sm" onclick="bidTickAll(false)">Select none</button><button class="btn btn-g btn-sm" onclick="bidTickWeak()">Only weak (&lt;75%)</button></div>';
   h+=BIDR.rows.map(function(w,i){var t=S.tray[w.id],d=trayDraft(t),c=w.r.confidence,col=c>=0.75?'#16a34a':c>=0.45?'#d97706':'#dc2626';
     return'<div class="sec" style="padding:8px;margin-bottom:8px"><div class="row" style="gap:8px;align-items:flex-start">'+
       '<input type="checkbox" id="bid-u'+i+'" '+(w.use?'checked':'')+' style="margin-top:22px" onchange="_bidCap();rBidReview()">'+
-      '<div class="tray-img" style="width:64px;height:64px;flex-shrink:0">'+imgHTML(d.img)+'</div>'+
+      '<div class="tray-img" style="width:64px;height:64px;flex-shrink:0;cursor:zoom-in" onclick="bidViewPhoto('+i+')">'+imgHTML(d.img)+'</div>'+
       '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><span style="font-size:11px;font-weight:800;color:'+col+'">'+Math.round(c*100)+'%</span>'+(d.name?'<span class="hint" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">was: '+esc(d.name)+'</span>':'<span style="flex:1"></span>')+
         '<button class="btn btn-g btn-sm" style="padding:3px 8px" title="Discard this guess" onclick="bidDiscard('+i+')">✕</button>'+
         '<button class="btn btn-p btn-sm" style="padding:3px 10px" onclick="bidApply('+i+')">✓ Apply</button></div>'+
@@ -4290,6 +4290,19 @@ function bidRedo(){
 }
 
 function bidTickAll(on){_bidCap();BIDR.rows.forEach(function(w){w.use=on;});rBidReview();}
+
+// full-screen photo for Circle to Search: long-press the nav bar, circle the item, tap the StockX result → Share → Spotted
+function bidViewPhoto(i){
+  _bidCap();var w=BIDR&&BIDR.rows[i];if(!w)return;var t=S.tray[w.id];if(!t)return;var d=trayDraft(t),k=d.orig||d.img;
+  L.linkTarget={id:w.id,at:Date.now()};svL();bidSaveEdits();
+  var ov=document.createElement('div');ov.id='bid-full';
+  ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center';
+  ov.innerHTML='<div style="position:absolute;top:0;left:0;right:0;padding:12px 14px;display:flex;align-items:center;gap:10px;color:#fff;font-size:13px;background:linear-gradient(#000c,#0000)"><span style="flex:1">Long-press the bar at the bottom → circle the item → tap the StockX result → <b>Share → Spotted</b></span><button class="icon-btn" style="color:#fff;font-size:22px" onclick="document.getElementById(\'bid-full\').remove()">✕</button></div>'+
+    '<div id="bid-full-img" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center"></div>';
+  document.body.appendChild(ov);
+  imgGet(k,function(data){var box=document.getElementById('bid-full-img');if(!box)return;if(!data){box.innerHTML='<span style="color:#fff">Photo not on this device yet</span>';return;}
+    var im=new Image();im.src=data;im.style.cssText='max-width:100%;max-height:100%;object-fit:contain';box.appendChild(im);});
+}
 
 // ════════════ 📍 GROUP BY PLACE — cluster tray drafts by photo GPS + day, deploy each group to its own place ════════════
 var TG=null,TG_REV={};
