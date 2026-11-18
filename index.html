@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.24';
+var APP_VERSION='v2.28';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1664,12 +1664,16 @@ function _gpSearch(kind,q,limit,cb){
   if(gpToday()>=cap){console.warn('[Spotted] Google Places daily cap reached ('+gpToday()+'/'+cap+') — skipped API call for "'+(qq||'nearby')+'"');
     setTimeout(function(){cb(null,[],{capped:true});},0);return;}
   GP_PENDING[key]=[cb];_gpCount();
+  var flush=function(e,res){var cbs=GP_PENDING[key]||[];delete GP_PENDING[key];cbs.forEach(function(f){try{f(e,e?null:clone(res),{});}catch(x){console.error(x);}});};
   var url,body;
+  if(kind==='details'){
+    fetch('https://places.googleapis.com/v1/places/'+encodeURIComponent(qq),{headers:{'X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':'displayName,formattedAddress,location'}})
+    .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);var res=[_gMap(d)];GP_CACHE[key]=res;flush(null,res);}).catch(function(e){flush(e);});
+    return;}
   if(kind==='near'){url='https://places.googleapis.com/v1/places:searchNearby';
     body={maxResultCount:limit,rankPreference:'DISTANCE',locationRestriction:{circle:{center:{latitude:loc.lat,longitude:loc.lng},radius:300}}};}
   else{url='https://places.googleapis.com/v1/places:searchText';body={textQuery:qq,maxResultCount:limit};
     if(loc)body.locationBias={circle:{center:{latitude:loc.lat,longitude:loc.lng},radius:15000}};}
-  var flush=function(e,res){var cbs=GP_PENDING[key]||[];delete GP_PENDING[key];cbs.forEach(function(f){try{f(e,e?null:clone(res),{});}catch(x){console.error(x);}});};
   fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':gKey(),'X-Goog-FieldMask':GP_FIELDS},body:JSON.stringify(body)})
   .then(function(r){return r.json();}).then(function(d){if(d.error)throw new Error(d.error.message);
     var res=(d.places||[]).map(_gMap);GP_CACHE[key]=res;flush(null,res);})      // only successes are cached
@@ -3413,9 +3417,9 @@ function _tiff(v,t){
   var res={};
   try{
     var i0=ifd(t+u32(t+4)),date='';
-    if(i0[0x8769]){var ex=ifd(t+u32(i0[0x8769].val));var d=ex[0x9003]||ex[0x9004];if(d)date=str(t+u32(d.val),19);}
+    var ex=null,tzs='';if(i0[0x8769]){ex=ifd(t+u32(i0[0x8769].val));var d=ex[0x9003]||ex[0x9004];if(d)date=str(t+u32(d.val),19);var oz=ex[0x9011]||ex[0x9010];if(oz)try{tzs=str(t+u32(oz.val),6);}catch(e2){}}
     if(!date&&i0[0x0132])date=str(t+u32(i0[0x0132].val),19);
-    var m=/^(\d{4}):(\d{2}):(\d{2})/.exec(date||'');if(m&&m[1]!=='0000')res.date=m[1]+'-'+m[2]+'-'+m[3];
+    var m=/^(\d{4}):(\d{2}):(\d{2})(?:[ T](\d{2}):(\d{2}):?(\d{2})?)?/.exec(date||'');if(m&&m[1]!=='0000'){res.date=m[1]+'-'+m[2]+'-'+m[3];if(m[4]!=null){var zm=/^([+-])(\d{2}):?(\d{2})/.exec(tzs||'');res.ts=zm?Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0))-(zm[1]==='-'?-1:1)*((+zm[2])*60+(+zm[3]))*60e3:new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0)).getTime();}}
     if(i0[0x8825]){var g=ifd(t+u32(i0[0x8825].val));
       var rat=function(e,k){var o=t+u32(e.val)+k*8;return u32(o)/(u32(o+4)||1);};
       var dms=function(e){return rat(e,0)+rat(e,1)/60+rat(e,2)/3600;};
@@ -3448,7 +3452,7 @@ function trayAdd(dataUrl,o){
   o=o||{};
   return tidyMaybe(dataUrl).then(function(t){return resizeData(t,900,'webp',0.88);}).then(function(d){
     var k=imgSave(d);
-    var t={id:'tr_'+gid(),draft:{id:'it_'+gid(),name:o.name||'',cat:'',img:k,imgs:[],folders:[],traits:{},notes:o.link?'🔗 '+o.link:'',parent:''},date:o.date||'',lat:o.lat!=null?o.lat:null,lng:o.lng!=null?o.lng:null,sel:true,created:now()};
+    var t={id:'tr_'+gid(),draft:{id:'it_'+gid(),name:o.name||'',cat:'',img:k,imgs:[],folders:[],traits:{},notes:o.link?'🔗 '+o.link:'',parent:''},date:o.date||'',ts:o.ts||null,lat:o.lat!=null?o.lat:null,lng:o.lng!=null?o.lng:null,sel:true,created:now()};
     put('tray',t);if(TRY)rTray();else render();return t;
   });
 }
@@ -3459,7 +3463,8 @@ function rTray(){
   var list=trayList(),nsel=list.filter(function(t){return t.sel;}).length;
   var h='<div class="mo-h"><h3>📥 Tray <span class="hint">'+list.length+' draft'+(list.length===1?'':'s')+'</span></h3><button class="icon-btn" onclick="closeModal(1);TRY=null;render()">✕</button></div><div class="mo-b" id="tray-b">';
   h+='<div class="row"><button class="btn btn-p" style="flex:1;padding:13px;font-size:15px" onclick="closeModal(1);openItemModal(null,{draft:true})">＋ New draft item</button><button class="btn btn-s" style="padding:13px" onclick="openPasteLinks()">🔗 Paste links</button></div>';
-  h+='<button class="btn btn-s btn-block" style="margin-top:6px;padding:11px" onclick="trayFromPhotos()">🖼 From photos — pick many from your camera roll</button>';
+  h+='<div class="row" style="margin-top:6px;gap:6px"><button class="btn btn-s" style="flex:1;padding:11px" onclick="traySnap()">📸 Snap here</button><button class="btn btn-s" style="flex:1.4;padding:11px" onclick="trayFromPhotos()">🖼 From photos</button></div>'+
+    '<div class="hint" style="margin-top:4px">📸 Snap saves where you\'re standing — Android removes location from photos picked from the gallery, so those group by time instead.</div>';
   h+='<div class="hint" style="margin:6px 0 0">⚡ Fastest: Lens → StockX result → <b>Share → Spotted</b>. Name, photo &amp; folder fill in. '+
     '<label style="white-space:nowrap"><input type="checkbox" '+(L.shareAsk?'':'checked')+' onchange="L.shareAsk=!this.checked;svL()"> shared links go straight here</label></div>';
   h+='<div class="hint" style="margin:6px 0 10px">Make each item as usual — your photo, clean-up, name, category, library folder. They wait here (not in your inventory) until you select a batch, give it a date & place, and deploy.</div>';
@@ -3479,7 +3484,7 @@ function rTray(){
         '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+([c?c.icon+' '+c.name:'',lp?'📚 '+lp.name:'',(d.folders||[]).filter(function(f){return S.folders[f];}).map(function(f){return(S.folders[f].icon||'📁')+' '+S.folders[f].name;}).join(' '),t.date?'📅 '+fmtDate(t.date):'',m?'→ '+m.name:'',t.fetching?'⏳ getting photo…':'',baiStatusHTML(t),bidStatusHTML(t),d.aiShot&&!BAI.st[t.id]?'✨':'',t.nophoto&&!d.img?'📷 needs photo':''].filter(Boolean).join(' · ')||'tap to edit')+'</div></div>'+
         '<button class="btn btn-g btn-sm" onclick="trayMenu(\''+t.id+'\')">⋯</button></div>';}).join('');
   }
-  h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button>'+(list.some(function(t){return t.sel&&t.lat!=null;})?'<button class="btn btn-s" onclick="openTrayGroups()">📍 By place</button>':'')+'<button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
+  h+='</div><div class="mo-f"><button class="btn btn-s" '+(nsel?'':'disabled')+' onclick="trayDelSel()">🗑</button>'+(list.some(function(t){return t.sel&&(t.lat!=null||t.ts);})?'<button class="btn btn-s" onclick="openTrayGroups()">📍 By place</button>':'')+'<button class="btn btn-p" '+(nsel?'':'disabled')+' onclick="openTrayAssign()">🚀 Deploy '+nsel+' →</button></div>';
   var st=$('tray-b')?$('tray-b').scrollTop:0;
   // something open on top (review, deploy, menu)? refresh the tray underneath without closing it
   var l1=$('mo-l1'),above=$('mo-l2')||$('mo-l3')||$('mo-l4');
@@ -3591,10 +3596,29 @@ function trayFromPhotos(){
         toast('🖼 '+done+' draft'+(done===1?'':'s')+' added'+(fail?' · '+fail+' couldn\'t be read':'')+' — select → 🔎 Identify',4500);if(TRY)rTray();return;}
       var f=files[i++];
       readPhotoFile(f).then(function(res){var m=res.meta||{};
-        return trayAdd(res.data,{date:m.date||'',lat:m.lat,lng:m.lng}).then(function(t){done++;made.push({id:t.id,ts:(m.date?Date.parse(m.date):0)||f.lastModified||0});
+        return trayAdd(res.data,{date:m.date||'',ts:m.ts||null,lat:m.lat,lng:m.lng}).then(function(t){done++;made.push({id:t.id,ts:m.ts||(m.date?Date.parse(m.date):0)||f.lastModified||0});
           if(TRY&&done%3===0)toast('🖼 '+done+'/'+files.length+'…',1200);});
       }).catch(function(){fail++;}).then(next);
     })();
+  };
+  document.body.appendChild(inp);inp.click();
+}
+
+// ── 📸 Snap: camera → draft, stamped with where you are right now (gallery photos lose GPS on Android) ──
+function traySnap(){
+  var fix=null;
+  if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){fix={lat:p.coords.latitude,lng:p.coords.longitude};L.lastLoc=fix;svL();},function(){},{enableHighAccuracy:true,timeout:20000,maximumAge:60000});
+  var inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.setAttribute('capture','environment');inp.style.display='none';
+  inp.onchange=function(){var f=inp.files&&inp.files[0];inp.remove();if(!f)return;
+    var at=Date.now();
+    readPhotoFile(f).then(function(res){
+      // give the location fix a few seconds to arrive if the camera was quick
+      var wait=function(n){return fix||n<=0?Promise.resolve():new Promise(function(r){setTimeout(r,500);}).then(function(){return wait(n-1);});};
+      return wait(12).then(function(){var loc=fix||(res.meta&&res.meta.lat!=null?{lat:res.meta.lat,lng:res.meta.lng}:null);
+        return trayAdd(res.data,{date:tod(),ts:at,lat:loc?loc.lat:null,lng:loc?loc.lng:null});});
+    }).then(function(t){var np=t.lat!=null?nearestPlace(t.lat,t.lng,300):null;
+      toast('📸 Added'+(t.lat!=null?(np?' · 📍 '+np.name:' · 📍 location saved'):' · no location (allow location for Spotted)'),3000);if(TRY)rTray();})
+    .catch(function(e){toast('Couldn\'t add that photo: '+(e&&e.message||e),4000);});
   };
   document.body.appendChild(inp);inp.click();
 }
@@ -4003,6 +4027,9 @@ function openBatchID(){
   if(BID.running)return toast('Already identifying — '+BID.done+'/'+BID.total);
   var list=bidCandidates();
   if(!list.length){if(bidCandidates(true).length)return openBidReview();return toast('Select drafts that have a photo');}
+  openIdChooser(list);
+}
+function _openBatchIDLegacy(list){
   var prov=idProvider();
   if(!prov){var h='<div class="mo-h"><h3>🔎 Identify</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b"><p>Add a <b>Gemini API key</b> (or Claude key) in Settings → AI.</p><div class="hint">Identifying is a text answer, which Gemini\'s free allowance covers — unlike making images. Free limits are per minute/day, so very big batches may need a pause.</div></div>';return openModal(h,3);}
   runBatchID(list);
@@ -4057,9 +4084,11 @@ function rBidReview(){
         '<button class="btn btn-g btn-sm" style="padding:3px 8px" title="Discard this guess" onclick="bidDiscard('+i+')">✕</button>'+
         '<button class="btn btn-p btn-sm" style="padding:3px 10px" onclick="bidApply('+i+')">✓ Apply</button></div>'+
       '<div class="row" style="gap:4px;margin-top:3px"><input class="m-in" id="bid-n'+i+'" style="flex:1;min-width:0;padding:7px 8px;font-size:13px" value="'+esc(w.name)+'">'+
+      '<button class="icon-btn" title="Open this photo in Google Lens, then share the StockX result back" onclick="bidLens('+i+')">🔍</button>'+
       '<button class="icon-btn" title="Paste a copied StockX link or share text into this one" onclick="bidPasteRow('+i+')">📋</button>'+
       '<button class="icon-btn" title="Find on StockX, then Share → Spotted to link it here" onclick="_bidCap();bidFindOnStockx(\''+w.id+'\',$(\'bid-n'+i+'\').value)">🔎</button></div>'+
       (w.r.link?'<div class="hint" style="margin-top:3px;color:#16a34a">🔗 Linked to StockX — its photo will be used</div>':'')+
+      bidDupHTML(w,i)+
       ((w.r.alts||[]).length?'<div class="chips" style="flex-wrap:wrap;margin-top:4px">'+w.r.alts.slice(0,2).map(function(a,k){return'<button class="chip" style="font-size:11px" onclick="_bidCap();BIDR.rows['+i+'].name=BIDR.rows['+i+'].r.alts['+k+'];rBidReview()">'+esc(a)+'</button>';}).join('')+'</div>':'')+
       (w.r.others&&w.r.others.length?'<div class="hint" style="margin-top:3px">Also in photo: '+esc(w.r.others.join(', '))+'</div>':'')+
       (w.r.why?'<div class="hint" style="margin-top:2px;font-size:11px">'+esc(w.r.why)+'</div>':'')+
@@ -4079,13 +4108,14 @@ function bidApply(onlyIdx){
     if(!nm)return toast('Type a name first');
     applied[w.id]=1;
     var x=clone(S.tray[w.id]);x.draft=trayDraft(x);delete x.idRes;
+    var dm=bidDup(w);if(dm&&bidDupOn(w,dm)){x.match=dm.it.id;}else if(x.match&&w.dupChoice===false)x.match='';
     var low=BIDR.pend&&w.r.confidence<0.45&&nm.indexOf('❓')!==0;
     x.draft.name=low?'❓ '+nm:nm;x.draft.srcTitle=nm;if(low)x.draft.mystery=true;
     if(w.r.sku&&!/style code/i.test(x.draft.notes||''))x.draft.notes=((x.draft.notes||'')+(x.draft.notes?'\n':'')+'Style code: '+w.r.sku).trim();
     if(!x.draft.parent){var par=autoFolderFor(nm);if(par){x.draft.parent=par;if(!x.draft.cat)x.draft.cat=effCat(S.refs[par]);}}
     put('tray',x);n++;
     if(w.r.link){var ls=itemLinks(x.draft);if(!ls.some(function(l){return l.url===w.r.link;}))ls.push({url:w.r.link});x.draft.links=ls;delete x.draft.link;put('tray',x);}
-    if(BIDR.photo&&(!low||w.r.link))photos.push({id:w.id,name:nm,url:w.r.link||''});});
+    if(BIDR.photo&&(!low||w.r.link)&&!x.match)photos.push({id:w.id,name:nm,url:w.r.link||''});});
   // keep what you typed on the rows still waiting, so a refresh doesn't lose it
   BIDR.rows.forEach(function(w){if(applied[w.id]||!S.tray[w.id]||!S.tray[w.id].idRes)return;var x=clone(S.tray[w.id]);if((w.name||'')!==x.idRes.name||w.r.link!==x.idRes.link){x.idRes.name=w.name;if(w.r.link)x.idRes.link=w.r.link;put('tray',x);}});
   BIDR.rows=BIDR.rows.filter(function(w){return!applied[w.id]&&S.tray[w.id]&&S.tray[w.id].idRes;});
@@ -4153,34 +4183,108 @@ function bidDiscard(i){
 
 function bidSaveEdits(){if(!BIDR)return;BIDR.rows.forEach(function(w){var cur=S.tray[w.id];if(!cur||!cur.idRes)return;if((w.name||'')!==cur.idRes.name||w.r.link!==cur.idRes.link){var x=clone(cur);x.idRes.name=w.name;if(w.r.link)x.idRes.link=w.r.link;put('tray',x);}});}
 
+// ── choose how to identify ──
+function openIdChooser(list){
+  var prov=idProvider(),vk=visionKey(),mode=L.idMode||(vk?'web':'ai');
+  var h='<div class="mo-h"><h3>🔎 Identify '+list.length+'</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">'+
+    '<label class="sec" style="display:flex;gap:10px;padding:10px;cursor:pointer;'+(mode==='web'?'border-color:var(--ink)':'')+'"><input type="radio" name="idm" value="web" '+(mode==='web'?'checked':'')+'><span><b>🌐 Web match</b> — Lens-style<div class="hint">Matches your photo against images on the web and grabs the StockX listing when it finds one; otherwise the AI names it using what the web found. Google Cloud Vision: first 1,000 photos a month free ('+visMonthCount()+' used this month). Needs billing on + Cloud Vision API enabled for the key\'s project.</div></span></label>'+
+    '<label class="sec" style="display:flex;gap:10px;padding:10px;cursor:pointer;margin-top:8px;'+(mode==='ai'?'border-color:var(--ink)':'')+'"><input type="radio" name="idm" value="ai" '+(mode==='ai'?'checked':'')+'><span><b>🤖 AI guess</b><div class="hint">Gemini names it from what it sees. Free, but weaker on close colourways and collabs.</div></span></label>'+
+    '<div class="m-lbl" style="margin-top:10px">Google key for Cloud Vision <span class="r hint">blank = use your Gemini key</span></div><input class="m-in" id="idm-vk" placeholder="AIza…" value="'+esc(L.visionKey||'')+'">'+
+    '<div class="hint" style="margin-top:8px">Still unsure on one? In the review, 🔍 opens that photo in the real Google Lens — share the StockX result back and it lands on that row.</div>'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3)">Cancel</button><button class="btn btn-p" onclick="idChooserGo()">Start</button></div>';
+  BID._pending=list;openModal(h,3);
+}
+function idChooserGo(){
+  var m=(document.querySelector('input[name=idm]:checked')||{}).value||'ai',vk=($('idm-vk')||{}).value||'';
+  L.visionKey=vk.trim();L.idMode=m;svL();var list=BID._pending||bidCandidates();closeModal(3);
+  if(m==='web'){if(!visionKey())return toast('Add a Google key first');return runBatchWeb(list);}
+  if(!idProvider())return toast('Add a Gemini key in Settings → AI first',4000);
+  runBatchID(list);
+}
+function runBatchWeb(list){
+  BID={running:true,st:{},res:{},done:0,total:list.length,err:'',via:'web'};
+  list.forEach(function(t){BID.st[t.id]='wait';});if(TRY)rTray();
+  var q=list.slice(),active=0,stop=false;
+  var finish=function(){BID.running=false;if(TRY)rTray();if(BID.err&&!bidPending().length)return alert('Web match failed: '+BID.err);openBidReview();};
+  var pump=function(){
+    if(stop||!q.length){if(active===0)finish();return;}
+    var t=q.shift();active++;BID.st[t.id]='run';if(TRY)rTray();
+    new Promise(function(res){imgGet(trayDraft(t).orig||trayDraft(t).img,function(v){res(v);});})
+    .then(function(d){if(!d)throw new Error('photo missing');return resizeData(d,1024,'jpeg',0.88);})
+    .then(wmIdentify).then(function(r){
+      if(!r||!r.name)throw new Error('no match');
+      BID.res[t.id]=r;BID.st[t.id]='ok';var cur=S.tray[t.id];if(cur){var x=clone(cur);x.idRes=r;put('tray',x);}
+    }).catch(function(e){BID.st[t.id]=(e.message||'failed').slice(0,80);if(!BID.err)BID.err=e.message;
+      if(/billing|Enable "Cloud Vision|API key not valid|PERMISSION_DENIED/i.test(e.message||'')){stop=true;}})
+    .then(function(){BID.done++;active--;if(TRY)rTray();pump();});
+  };
+  pump();pump();
+}
+
+// ── already in the library? match by StockX/GOAT link first, then by name ──
+function _dupNorm(n){return _qaTok(String(n||'').replace(/❓/g,'').replace(/\(women's\)|\bwomens?\b|\bwmns\b/gi,' w ').replace(/\bretro\b|\bog\b|\bthe\b|\band\b/gi,' ')).join(' ');}
+function bidDup(w){
+  var link=w.r.link||'',nn=_dupNorm(w.name),nt=nn.split(' ').filter(Boolean);if(!nt.length&&!link)return null;
+  var best=null;
+  vals(S.items).forEach(function(it){
+    var sc=0,why='';
+    if(link&&itemLinks(it).some(function(l){return l.url.split('?')[0].replace(/\/$/,'')===link.split('?')[0].replace(/\/$/,'');})){sc=1;why='same StockX link';}
+    else{var it2=_dupNorm(it.name);if(!it2)return;
+      if(it2===nn){sc=0.97;why='same name';}
+      else{var a=it2.split(' '),inter=a.filter(function(x){return nt.indexOf(x)>=0;}).length,j=inter/(a.length+nt.length-inter);
+        if(j>=0.6){sc=j*0.9;why='similar name';}}}
+    if(sc&&(!best||sc>best.sc))best={it:it,sc:sc,why:why};
+  });
+  return best;
+}
+// strong matches default to "it's the same one"; looser ones just get flagged
+function bidDupOn(w,dm){return w.dupChoice!=null?w.dupChoice:dm.sc>=0.95;}
+function bidDupHTML(w,i){
+  var dm=bidDup(w);if(!dm)return'';var on=bidDupOn(w,dm),th=itemThumb(dm.it),ns=(sightIndex().by[dm.it.id]||[]).length;
+  return'<div style="margin-top:6px;padding:7px;border-radius:10px;border:1px solid '+(on?'#16a34a':'#d97706')+';background:'+(on?'#16a34a14':'#d9770614')+'">'+
+    '<div class="row" style="gap:8px;align-items:center">'+(th?'<div class="tray-img" style="width:40px;height:40px;flex-shrink:0">'+imgHTML(th)+'</div>':'')+
+    '<div style="flex:1;min-width:0;font-size:12px"><b>📚 Already in your library?</b> <span class="hint">('+dm.why+')</span><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(dm.it.name)+'</div><div class="hint">'+ns+' sighting'+(ns===1?'':'s')+'</div></div></div>'+
+    '<div class="chips" style="margin-top:6px;flex-wrap:wrap"><button class="chip'+(on?' on':'')+'" onclick="_bidCap();BIDR.rows['+i+'].dupChoice=true;rBidReview()">✓ Same — add sighting</button><button class="chip'+(!on?' on':'')+'" onclick="_bidCap();BIDR.rows['+i+'].dupChoice=false;rBidReview()">＋ New item</button></div></div>';
+}
+
 // ════════════ 📍 GROUP BY PLACE — cluster tray drafts by photo GPS + day, deploy each group to its own place ════════════
 var TG=null,TG_REV={};
-var TG_RADIUS=300;   // metres — photos taken within this of a group's centre (same day) join it
+var TG_RADIUS=300,TG_GAP=30*60e3;   // time-only stops: 30+ min between photos = a new stop   // metres — photos taken within this of a group's centre (same day) join it
 function _tgDist(a,b){var dy=(a.lat-b.lat)*111320,dx=(a.lng-b.lng)*111320*Math.cos(a.lat*Math.PI/180);return Math.sqrt(dx*dx+dy*dy);}
 function trayGroups(list){
-  var gs=[],none={id:'g_none',ids:[],date:'',lat:null,lng:null,place:'',none:true};
+  var gs=[],timed=[],none={id:'g_none',ids:[],date:'',lat:null,lng:null,place:'',none:true};
   list.slice().sort(function(a,b){return(a.date||'').localeCompare(b.date||'')||(a.created||0)-(b.created||0);}).forEach(function(t){
-    if(t.lat==null||t.lng==null){none.ids.push(t.id);return;}
-    var p={lat:+t.lat,lng:+t.lng},g=gs.find(function(x){return x.date===(t.date||'')&&_tgDist(x,p)<TG_RADIUS;});
-    if(!g){g={id:'g_'+gid(),ids:[],date:t.date||'',lat:p.lat,lng:p.lng,sumLat:0,sumLng:0,place:''};gs.push(g);}
+    if(t.lat==null||t.lng==null){(t.ts?timed:none.ids).push(t.ts?t:t.id);return;}
+    var p={lat:+t.lat,lng:+t.lng},g=gs.find(function(x){return x.date===(t.date||'')&&(t.gpid||x.gpid?x.gpid===t.gpid:_tgDist(x,p)<TG_RADIUS);});
+    if(!g){g={id:'g_'+gid(),ids:[],date:t.date||'',lat:p.lat,lng:p.lng,sumLat:0,sumLng:0,place:'',gpid:t.gpid||'',gname:t.gname||'',gaddr:t.gaddr||'',fromTl:t.geo==='timeline'};gs.push(g);}
     g.ids.push(t.id);g.sumLat+=p.lat;g.sumLng+=p.lng;g.lat=g.sumLat/g.ids.length;g.lng=g.sumLng/g.ids.length;
   });
   gs.forEach(function(g){var np=nearestPlace(g.lat,g.lng,TG_RADIUS);if(np)g.place=np.id;});
+  // no location (Android strips it from gallery photos) → split into stops by time: a gap of 30+ minutes starts a new stop
+  timed.sort(function(a,b){return a.ts-b.ts;});var cur=null;
+  timed.forEach(function(t){var d=t.date||'';
+    if(!cur||t.ts-cur.last>TG_GAP||cur.date!==d){cur={id:'g_'+gid(),ids:[],date:d,lat:null,lng:null,place:'',timeOnly:true,first:t.ts,last:t.ts};gs.push(cur);}
+    cur.ids.push(t.id);cur.last=t.ts;});
   if(none.ids.length)gs.push(none);
   return gs;
 }
 function openTrayGroups(){
   var sel=trayList().filter(function(t){return t.sel;});
   if(!sel.length)return toast('Select the drafts to group');
-  var withGps=sel.filter(function(t){return t.lat!=null;}).length;
-  if(!withGps)return toast('None of these have a photo location — add them with 🖼 From photos (location must be on in your camera)',5000);
+  if(!sel.some(function(t){return t.lat!=null||t.ts;}))return toast('These have no photo location or time — deploy them the normal way',5000);
   var sd=sessDefaults(),ld=L.lastDeploy&&(Date.now()-L.lastDeploy.at<12*3600e3)?L.lastDeploy:null;
   TG={groups:trayGroups(sel),by:(ld?ld.by:sd.by).slice()};
   rTG();
-  TG.groups.forEach(function(g){if(!g.none&&!g.place)tgSuggest(g);});
+  TG.groups.forEach(function(g){if(!g.none&&!g.timeOnly&&!g.place)tgSuggest(g);});
 }
 // free OpenStreetMap lookup of what's at the group's spot — a hint you can adopt with one tap (no Google call)
 function tgSuggest(g){
+  if(g.gname){g.sug={name:g.gname,address:g.gaddr||'',lat:g.lat,lng:g.lng};return rTG();}
+  if(g.gpid){var known=vals(S.places).find(function(p){return p.gpid===g.gpid;});if(known){g.place=known.id;return rTG();}
+    if(gKey())return _gpSearch('details',g.gpid,1,function(e,res){if(!e&&res&&res[0]&&res[0].name){g.sug=res[0];g.sug.gpid=g.gpid;if(TG)rTG();}else tgSuggestOsm(g);});}
+  tgSuggestOsm(g);
+}
+function tgSuggestOsm(g){
   var k=g.lat.toFixed(4)+','+g.lng.toFixed(4);
   if(TG_REV[k]){g.sug=TG_REV[k];return rTG();}
   fetch('https://photon.komoot.io/reverse?limit=1&lat='+g.lat+'&lon='+g.lng).then(function(r){return r.json();}).then(function(j){
@@ -4189,12 +4293,14 @@ function tgSuggest(g){
 function rTG(){
   if(!TG)return;
   var h='<div class="mo-h"><h3>📍 Group by place</h3><button class="icon-btn" onclick="closeModal(2);TG=null">✕</button></div><div class="mo-b" id="tg-b">'+
-    '<div class="hint" style="margin-bottom:8px">Grouped by where and which day each photo was taken. Set a place per group, then deploy them all — each draft keeps its own photo date.</div>'+
+    '<div class="hint" style="margin-bottom:8px">Grouped by where each photo was taken — or, when Android stripped the location, by time (photos within 30 min of each other = one stop). Set a place per group, then deploy them all; each keeps its own photo date.</div>'+
     '<div class="m-lbl">Who spotted</div><div class="chips" style="margin-bottom:8px">'+vals(S.people).map(function(p){var on=TG.by.indexOf(p.id)>=0;return'<button class="chip'+(on?' on':'')+'" onclick="_idToggle(TG.by,\''+p.id+'\');rTG()">'+esc(p.name)+'</button>';}).join('')+'</div>';
+  var noLoc=TG.groups.filter(function(g){return g.timeOnly||g.none;}).reduce(function(a,g){return a+g.ids.length;},0);
+  if(noLoc)h+='<button class="btn btn-p btn-block" style="margin-bottom:8px" onclick="openTimelineHelp()">🗺 Fill '+noLoc+' location'+(noLoc===1?'':'s')+' from Google Maps Timeline</button>';
   h+=TG.groups.map(function(g,gi){
     var pl=g.place&&S.places[g.place],th=g.ids.slice(0,6).map(function(id){var d=trayDraft(S.tray[id]||{});return'<div class="tray-img" style="width:44px;height:44px;flex-shrink:0">'+(d.img?imgHTML(d.img):'')+'</div>';}).join('');
     return'<div class="sec" style="padding:9px;margin-bottom:8px">'+
-      '<div class="row" style="align-items:center;gap:6px"><b style="flex:1">'+(g.none?'No photo location':'Group '+String.fromCharCode(65+gi))+' · '+g.ids.length+'</b><span class="hint">'+(g.date?fmtDate(g.date):g.none?'':'no date')+'</span></div>'+
+      '<div class="row" style="align-items:center;gap:6px"><b style="flex:1">'+(g.fromTl?'🗺 ':'')+(g.none?'No location or time':g.timeOnly?'Stop '+_tgClock(g.first)+(g.last-g.first>60e3?'–'+_tgClock(g.last):''):'Group '+String.fromCharCode(65+gi))+' · '+g.ids.length+'</b><span class="hint">'+(g.date?fmtDate(g.date):g.none?'':'no date')+'</span></div>'+
       '<div class="row" style="gap:4px;margin:6px 0;overflow:hidden">'+th+(g.ids.length>6?'<span class="hint" style="align-self:center">+'+(g.ids.length-6)+'</span>':'')+'</div>'+
       '<button class="btn '+(pl?'btn-s':'btn-g')+' btn-block" style="text-align:left" onclick="tgPick('+gi+')">📍 '+(pl?esc(pl.name):'Choose a place…')+'</button>'+
       (!pl&&g.sug?'<button class="chip" style="margin-top:6px" onclick="tgUseSug('+gi+')">＋ Use “'+esc(g.sug.name)+'”'+(g.sug.address?' <span class="hint">'+esc(g.sug.address.slice(0,40))+'</span>':'')+'</button>':'')+
@@ -4207,15 +4313,15 @@ function tgPick(gi){
   var g=TG.groups[gi];
   openPlacePicker(function(id){if(!TG)return;g.place=id;
     // other groups at the same spot (different day) are the same store — fill them too
-    if(!g.none)TG.groups.forEach(function(o){if(!o.none&&!o.place&&_tgDist(o,g)<TG_RADIUS)o.place=id;});rTG();});
+    if(!g.none&&!g.timeOnly)TG.groups.forEach(function(o){if(!o.none&&!o.timeOnly&&!o.place&&_tgDist(o,g)<TG_RADIUS)o.place=id;});rTG();});
   // start from the group's spot: your saved places nearest first, plus the opt-in 📍 Nearby lookup
-  if(!g.none&&PP){PP.loc={lat:g.lat,lng:g.lng};ppSavedNearby();}
+  if(!g.none&&!g.timeOnly&&PP){PP.loc={lat:g.lat,lng:g.lng};ppSavedNearby();}
 }
 function tgUseSug(gi){
   var g=TG.groups[gi],s=g.sug;if(!s)return;
   var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===s.name.toLowerCase()&&(p.lat==null||_tgDist(p,g)<TG_RADIUS*2);});
   var id=ex?ex.id:'pl_'+gid();
-  if(!ex)put('places',{id:id,name:s.name,address:s.address||'',lat:s.lat!=null?s.lat:g.lat,lng:s.lng!=null?s.lng:g.lng,created:now()});
+  if(!ex)put('places',{id:id,name:s.name,address:s.address||'',lat:s.lat!=null?s.lat:g.lat,lng:s.lng!=null?s.lng:g.lng,gpid:g.gpid||s.gpid||'',created:now()});
   g.place=id;TG.groups.forEach(function(o){if(!o.none&&!o.place&&_tgDist(o,g)<TG_RADIUS)o.place=id;});rTG();
 }
 function tgDeploy(){
@@ -4231,6 +4337,163 @@ function tgDeploy(){
   TG=null;closeModal(2);
   toast('🚀 Deployed '+n+' item'+(n===1?'':'s')+' across '+ng+' place'+(ng===1?'':'s'),4500);
   if(trayList().length)openTray();
+}
+
+function _tgClock(ts){var d=new Date(ts),h=d.getHours(),m=d.getMinutes();return((h%12)||12)+':'+(m<10?'0':'')+m+(h<12?' AM':' PM');}
+
+// ════════════ 🗺 GOOGLE MAPS TIMELINE → photo locations ════════════
+// Android strips GPS from gallery photos given to a website, but the time survives. Your Timeline export
+// knows where you were at every moment, so each draft's photo time → the visit (store) you were in.
+// Reads: on-device export (Timeline.json: semanticSegments), iPhone export (array, "geo:" strings),
+// and older Takeout monthly files (timelineObjects / placeVisit). The file never leaves your phone.
+var TL_SLACK=10*60e3,TL_PATH_MAX=20*60e3;
+function _tlLL(v){
+  if(!v)return null;
+  if(typeof v==='object'){if(v.latitudeE7!=null)return{lat:v.latitudeE7/1e7,lng:v.longitudeE7/1e7};if(v.latLng)return _tlLL(v.latLng);if(v.latitude!=null)return{lat:+v.latitude,lng:+v.longitude};return null;}
+  var m=/(-?\d+(?:\.\d+)?)\s*°?\s*,\s*(-?\d+(?:\.\d+)?)/.exec(String(v).replace(/^geo:/,''));return m?{lat:+m[1],lng:+m[2]}:null;
+}
+function _tlT(s){var t=Date.parse(s);return isNaN(t)?null:t;}
+// → {visits:[{s,e,lat,lng,pid,name,addr,prob}], path:[{t,lat,lng}]}
+function tlParse(j,acc,lo,hi){
+  acc=acc||{visits:[],path:[]};var inR=function(a,b){return b>=lo&&a<=hi;};
+  var segs=Array.isArray(j)?j:(j&&j.semanticSegments)||null;
+  if(segs)segs.forEach(function(g){
+    var s=_tlT(g.startTime),e=_tlT(g.endTime);if(s==null||e==null||!inR(s,e))return;
+    if(g.visit&&g.visit.topCandidate){var c=g.visit.topCandidate,ll=_tlLL(c.placeLocation);
+      if(ll)acc.visits.push({s:s,e:e,lat:ll.lat,lng:ll.lng,pid:c.placeId||c.placeID||'',name:'',addr:'',prob:+(c.probability||g.visit.probability||0.5)});}
+    (g.timelinePath||[]).forEach(function(pt){var t=_tlT(pt.time)||(pt.durationMinutesOffsetFromStartTime!=null?s+(+pt.durationMinutesOffsetFromStartTime)*60e3:null),ll=_tlLL(pt.point);if(t!=null&&ll&&t>=lo&&t<=hi)acc.path.push({t:t,lat:ll.lat,lng:ll.lng});});
+  });
+  ((j&&j.timelineObjects)||[]).forEach(function(o){
+    var v=o.placeVisit;if(!v||!v.location||!v.duration)return;
+    var s=_tlT(v.duration.startTimestamp||v.duration.startTimestampMs&&+v.duration.startTimestampMs),e=_tlT(v.duration.endTimestamp||v.duration.endTimestampMs&&+v.duration.endTimestampMs);
+    if(s==null&&v.duration.startTimestampMs)s=+v.duration.startTimestampMs;if(e==null&&v.duration.endTimestampMs)e=+v.duration.endTimestampMs;
+    if(s==null||e==null||!inR(s,e))return;var ll=_tlLL(v.location);if(!ll)return;
+    acc.visits.push({s:s,e:e,lat:ll.lat,lng:ll.lng,pid:v.location.placeId||'',name:v.location.name||'',addr:v.location.address||'',prob:+(v.visitConfidence||50)/100});
+  });
+  return acc;
+}
+// where were you at time ts? a visit covering it (shortest, most likely), else the nearest path point
+function tlWhere(tl,ts){
+  var best=null;
+  tl.visits.forEach(function(v){if(ts<v.s-TL_SLACK||ts>v.e+TL_SLACK)return;var inside=ts>=v.s&&ts<=v.e,sc=(inside?2:1)+v.prob-((v.e-v.s)/864e5);if(!best||sc>best.sc)best={sc:sc,v:v};});
+  if(best)return{lat:best.v.lat,lng:best.v.lng,pid:best.v.pid,name:best.v.name,addr:best.v.addr,how:'visit'};
+  var bp=null,bd=TL_PATH_MAX;tl.path.forEach(function(p){var d=Math.abs(p.t-ts);if(d<bd){bd=d;bp=p;}});
+  return bp?{lat:bp.lat,lng:bp.lng,how:'path'}:null;
+}
+function openTimelineHelp(){
+  var need=trayList().filter(function(t){return t.sel&&t.lat==null;}),timed=need.filter(function(t){return t.ts;}).length;
+  var h='<div class="mo-h"><h3>🗺 Locations from Timeline</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">'+
+    '<p style="margin:0 0 8px"><b>'+timed+'</b> of '+need.length+' selected drafts without a location have a photo time to match.'+(need.length-timed?' <span class="hint">('+(need.length-timed)+' were added before Spotted kept photo times — re-add those with 🖼 From photos.)</span>':'')+'</p>'+
+    '<div class="sec" style="padding:9px"><b>Export your Timeline (once per trip)</b><ol class="hint" style="margin:6px 0 0;padding-left:18px;line-height:1.5">'+
+      '<li>Android <b>Settings → Location → Location services → Timeline</b></li>'+
+      '<li>Tap <b>Export Timeline data</b> → save the file (Timeline.json)</li>'+
+      '<li>Come back and pick it below</li></ol>'+
+      '<div class="hint" style="margin-top:6px">Also works with a Google Takeout location-history file. It\'s read on your phone only — nothing is uploaded.</div></div>'+
+    '</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3)">Cancel</button><button class="btn btn-p" '+(timed?'':'disabled')+' onclick="tlPick()">📂 Pick Timeline file</button></div>';
+  openModal(h,3);
+}
+function tlPick(){
+  var inp=document.createElement('input');inp.type='file';inp.accept='.json,application/json';inp.multiple=true;inp.style.display='none';
+  inp.onchange=function(){var fs=[].slice.call(inp.files||[]);inp.remove();if(!fs.length)return;tlApplyFiles(fs);};
+  document.body.appendChild(inp);inp.click();
+}
+function tlApplyFiles(files){
+  var targets=trayList().filter(function(t){return t.sel&&t.lat==null&&t.ts;});
+  if(!targets.length)return toast('No selected drafts with a photo time');
+  var lo=Math.min.apply(null,targets.map(function(t){return t.ts;}))-864e5,hi=Math.max.apply(null,targets.map(function(t){return t.ts;}))+864e5;
+  toast('🗺 Reading Timeline…',2000);
+  var acc={visits:[],path:[]},i=0;
+  (function next(){
+    if(i>=files.length)return done();
+    files[i++].text().then(function(txt){tlParse(JSON.parse(txt),acc,lo,hi);}).catch(function(e){console.warn('Timeline parse',e);toast('Couldn\'t read one file: '+(e.message||e),4000);}).then(next);
+  })();
+  function done(){
+    if(!acc.visits.length&&!acc.path.length){closeModal(3);return toast('That Timeline has nothing around those photo times',5000);}
+    var hit=0,miss=0;
+    targets.forEach(function(t){var w=tlWhere(acc,t.ts);if(!w){miss++;return;}
+      var x=clone(S.tray[t.id]);x.lat=w.lat;x.lng=w.lng;x.geo='timeline';if(w.pid)x.gpid=w.pid;if(w.name)x.gname=w.name;if(w.addr)x.gaddr=w.addr;put('tray',x);hit++;});
+    closeModal(3);
+    toast('🗺 Located '+hit+' draft'+(hit===1?'':'s')+(miss?' · '+miss+' had no Timeline match':''),4500);
+    if(TG)openTrayGroups();else if(TRY)rTray();
+  }
+}
+
+// ════════════ 🌐 WEB MATCH — Lens-style identification via Google Cloud Vision Web Detection ════════════
+// Matches the photo against images across the web (like Lens) and looks for the StockX/GOAT listing among
+// the matching pages and images. If no listing turns up, the web's best guesses are handed to Gemini as clues.
+// Free for the first 1,000 photos a month; the key's Google Cloud project needs billing on + Cloud Vision API enabled.
+function visionKey(){return L.visionKey||L.geminiKey||gKey()||'';}
+function visMonthKey(){return'vis_'+tod().slice(0,7);}
+function visMonthCount(){try{return parseInt(localStorage.getItem(visMonthKey()),10)||0;}catch(e){return 0;}}
+function _visCount(){try{localStorage.setItem(visMonthKey(),String(visMonthCount()+1));}catch(e){}}
+function _wmStrip(s){return String(s||'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&#39;|&apos;/g,"'").replace(/&quot;/g,'"').trim();}
+// "Jordan 1 Retro High OG Chicago - StockX" → "Jordan 1 Retro High OG Chicago"
+function _wmTitle(t){return _wmStrip(t).replace(/\s*[|\-–—:]\s*(stockx|goat|flight club|ebay|grailed|klekt|kicks crew|stadium goods|sneakers?|buy.*|shop.*|men'?s.*|women'?s shoes.*)\s*$/i,'').replace(/^(buy|shop)\s+/i,'').trim();}
+function webDetect(dataUrl){
+  var key=visionKey();if(!key)return Promise.reject(new Error('No Google key for Cloud Vision'));
+  _visCount();
+  return fetch('https://vision.googleapis.com/v1/images:annotate?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({requests:[{image:{content:dataUrl.split(',')[1]},features:[{type:'WEB_DETECTION',maxResults:25}]}]})})
+  .then(function(r){return r.json();}).then(function(j){
+    if(j.error){var m=j.error.message||'Vision error';
+      if(/billing/i.test(m))m='Turn on billing for this key\'s Google Cloud project (the first 1,000 photos a month stay free)';
+      else if(/has not been used|disabled|SERVICE_DISABLED/i.test(m))m='Enable "Cloud Vision API" for this key\'s project in Google Cloud Console';
+      throw new Error(m);}
+    var r=(j.responses||[])[0]||{};if(r.error)throw new Error(r.error.message||'Vision error');return r.webDetection||{};
+  });
+}
+// pull the best product listing out of a web-detection result
+function wmPick(wd){
+  var pages=(wd.pagesWithMatchingImages||[]).map(function(p){return{url:p.url,title:_wmTitle(p.pageTitle),full:(p.fullMatchingImages||[]).length};});
+  var imgs=[].concat(wd.fullMatchingImages||[],wd.partialMatchingImages||[],wd.visuallySimilarImages||[]).map(function(x){return x.url;});
+  pages.forEach(function(p){(p.url&&linkSite(p.url))&&(p.site=linkSite(p.url).id);});
+  var isProduct=function(p){return p.site==='stockx'?!/\/(search|brands?|sneakers|retro-jordans|nike|adidas|new-balance)(\/|\?|$)/i.test(p.url.replace(/^https?:\/\/[^/]+/,''))&&p.url.replace(/^https?:\/\/[^/]+\/?/,'').split('/').filter(Boolean).length===1:true;};
+  var rank={stockx:5,goat:4,flightclub:3,ebay:1,grailed:1};
+  var shop=pages.filter(function(p){return p.site&&rank[p.site]&&isProduct(p);}).sort(function(a,b){return(rank[b.site]-rank[a.site])||(b.full-a.full);});
+  // StockX image file names are product titles: images.stockx.com/images/Air-Jordan-1-…-Product.jpg
+  var sxImg=imgs.map(function(u){var m=/images\.stockx\.com\/images\/([^?#]+?)(?:-Product)?\.(?:jpg|jpeg|png|webp)/i.exec(u||'');return m?decodeURIComponent(m[1]):'';}).filter(Boolean);
+  var res={hints:[]};
+  var sx=shop.find(function(p){return p.site==='stockx';});
+  if(sx){res.link=sx.url.split('?')[0];res.name=sx.title||linkSlugName(sx.url);res.how='StockX page';}
+  else if(sxImg.length){var n=sxImg[0];res.name=n.replace(/-/g,' ');res.link='https://stockx.com/'+n.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');res.how='StockX image';res.guessLink=true;}
+  else if(shop.length){res.name=shop[0].title;res.link=shop[0].url.split('?')[0];res.how=(linkSite(shop[0].url)||{}).name+' page';}
+  res.alts=[];shop.concat(pages).forEach(function(p){if(p.title&&p.title!==res.name&&res.alts.indexOf(p.title)<0&&res.alts.length<2&&p.title.length<90)res.alts.push(p.title);});
+  (wd.bestGuessLabels||[]).forEach(function(l){if(l.label)res.hints.push(l.label);});
+  (wd.webEntities||[]).filter(function(e){return e.description&&(e.score||0)>0.4;}).slice(0,8).forEach(function(e){res.hints.push(e.description);});
+  pages.slice(0,6).forEach(function(p){if(p.title)res.hints.push(p.title);});
+  return res;
+}
+// one draft: web match → (if no listing) Gemini with the web clues
+function wmIdentify(dataUrl){
+  return webDetect(dataUrl).then(function(wd){
+    var pk=wmPick(wd);
+    if(pk.name&&!pk.guessLink)return{name:pk.name,link:pk.link,confidence:pk.how==='StockX page'?0.92:0.8,alts:pk.alts,why:'🌐 Web match: '+pk.how};
+    var prov=idProvider();
+    if(!prov)return pk.name?{name:pk.name,link:pk.link,confidence:0.6,alts:pk.alts,why:'🌐 Web match: '+pk.how}:{name:pk.hints[0]||'',confidence:0.3,alts:pk.hints.slice(1,3),why:'🌐 Web guess only'};
+    var clues=(pk.name?'Possible StockX title from a matching image: "'+pk.name+'". ':'')+'Google web search of this photo suggests: '+pk.hints.slice(0,10).map(function(h){return'"'+h+'"';}).join(', ')+'.';
+    return new Promise(function(res,rej){
+      (prov==='claude'?_claudeID:_geminiID)(BID_SYS,'Identify this 1 photo. '+clues+' Use these web clues when they fit what you see. Return exactly 1 object.',[dataUrl],function(e,txt){
+        if(e)return pk.name||pk.hints[0]?res({name:pk.name||pk.hints[0],link:pk.link,confidence:0.45,alts:pk.hints.slice(0,2),why:'🌐 Web clues (AI unavailable)'}):rej(e);
+        try{var r=_bidParse(txt)[0]||{};r.confidence=Math.max(0,Math.min(1,+r.confidence||0));
+          if(pk.link&&pk.name&&r.name&&_qaTok(r.name).join(' ').indexOf(_qaTok(pk.name).slice(0,3).join(' '))>=0)r.link=pk.link;
+          r.why='🌐 Web clues + AI'+(r.why?': '+r.why:'');res(r);}catch(x){rej(x);}
+      });
+    });
+  });
+}
+// ── 🔍 hand one draft's photo to the real Google Lens app; share the StockX result back and it lands on this row ──
+function bidLens(i){
+  _bidCap();var w=BIDR&&BIDR.rows[i];if(!w)return;var t=S.tray[w.id];if(!t)return;var d=trayDraft(t),k=d.orig||d.img;
+  imgGet(k,function(data){
+    if(!data)return toast('Photo not on this device yet');
+    fetch(data).then(function(r){return r.blob();}).then(function(b){
+      var f=new File([b],'spotted-'+w.id+'.jpg',{type:b.type||'image/jpeg'});
+      if(!(navigator.canShare&&navigator.canShare({files:[f]})))return toast('Sharing photos isn\'t supported here — save it and use Lens',4000);
+      L.linkTarget={id:w.id,at:Date.now()};svL();bidSaveEdits();
+      toast('Pick Google Lens → tap the StockX result → Share → Spotted',6000);
+      navigator.share({files:[f]}).catch(function(){});
+    });
+  });
 }
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
