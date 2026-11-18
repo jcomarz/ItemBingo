@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.35';
+var APP_VERSION='v2.36';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -2168,6 +2168,8 @@ function openSettings(sec){
   var djk=djStore().anthropicKey;
   h+='<div class="sec" id="sec-vision"><h4>🌐 Web match (Cloud Vision)</h4><div class="hint">Lens-style identify for 🔎 Identify in the tray. Needs a Google Cloud key that starts with <b>AIza</b> (not an AI Studio “AQ.” key), with Cloud Vision API enabled. First 1,000 photos a month free · '+visMonthCount()+' used this month.</div>'+
     '<input class="m-in" type="password" placeholder="AIza…" value="'+esc(L.visionKey||'')+'" onchange="var v=this.value.trim();if(/^AQ\\./.test(v)){toast(\'That\\\'s an AI Studio key — Cloud Vision needs one starting with AIza\',5000);}L.visionKey=v;svL();syncKeysNow();toast(v?\'Cloud Vision key saved\':\'Cloud Vision key removed\');" style="margin-top:6px"></div>';
+  h+='<div class="sec" id="sec-gsearch"><h4>🔎 Can Gemini search Google?</h4><div class="hint">Identify is far more accurate when Gemini can look things up (like Lens\'s AI Overview). Google only allows that on <b>paid-tier</b> keys — 5,000 searched lookups a month are free, then $14 per 1,000. A Gemini key made in a project with billing on counts as paid tier.</div>'+
+    '<button class="btn btn-s btn-block" style="margin-top:6px" onclick="testGeminiSearch()">Test Google Search with my Gemini key</button><div class="hint" id="gs-res" style="margin-top:6px">'+(L.geminiNoSearchUntil&&Date.now()<L.geminiNoSearchUntil?'⚠️ Last try: your key couldn\'t search.':'')+'</div></div>';
   h+='<div class="sec" id="sec-id"><h4>🔎 Identify from a description</h4><div class="hint">Turns “Jordan with a strap, grey fuzzy tongue” into exact model names. Claude is great at sneakers/streetwear; Gemini\'s text models have a free tier and can search the web.</div>'+
     '<div class="seg" style="margin-top:8px">'+[['auto','Auto'],['claude','Claude'],['gemini','Gemini']].map(function(o){return'<button class="'+((L.idProvider||'auto')===o[0]?'on':'')+'" onclick="L.idProvider=\''+o[0]+'\';svL();openSettings(\'id\')">'+o[1]+'</button>';}).join('')+'</div>'+
     '<input class="m-in" type="password" placeholder="Claude API key (sk-ant-…)'+(djk?' — using Decade Journal\'s':'')+'" value="'+esc(L.claudeKey||'')+'" onchange="L.claudeKey=this.value.trim();svL()" style="margin-top:8px">'+
@@ -2285,6 +2287,21 @@ function gpSetCap(v){var n=parseInt(v,10);if(!(n>0))return toast('Enter a number
 function gpResetLifetime(){if(!confirm('Reset the lifetime Google Places call count to 0? (Today\'s count and the daily limit are unchanged.)'))return;
   vals(S.meta||{}).forEach(function(m){if(m&&typeof m.id==='string'&&m.id.indexOf('gp_')===0){var x=clone(m);x.calls=0;put('meta',x);}});
   var e=$('gp-usage');if(e)e.textContent='API calls: 0 · '+gpToday()+'/'+gpCap()+' today';toast('Reset');}
+
+function testGeminiSearch(){
+  var out=$('gs-res');if(!L.geminiKey){if(out)out.textContent='Add a Gemini key first (Settings → AI).';return;}
+  if(out)out.textContent='Testing…';
+  var m=(L.geminiTextOK||L.geminiTextModel||'gemini-flash-latest').trim();
+  fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},
+    body:JSON.stringify({contents:[{role:'user',parts:[{text:'Search the web: which New Balance sneaker has style code URC564KY? Answer in one short line.'}]}],tools:[{google_search:{}}]})})
+  .then(function(r){return r.json().then(function(j){
+    if(!r.ok){var msg=(j.error&&j.error.message)||('HTTP '+r.status);L.geminiNoSearchUntil=Date.now()+864e5;svL();
+      if(out)out.innerHTML='⚠️ <b>Your key can\'t search Google.</b> '+esc(msg.slice(0,220))+'<br>Fix: make a Gemini key in a project with billing on (e.g. your CloudVision project → “Create Gemini API key”), and paste it as your Gemini key in Settings → AI.';return;}
+    var c=(j.candidates||[])[0]||{},txt=((c.content||{}).parts||[]).map(function(x){return x.text||'';}).join('').trim(),searched=!!(c.groundingMetadata&&(c.groundingMetadata.webSearchQueries||[]).length);
+    delete L.geminiNoSearchUntil;svL();
+    if(out)out.innerHTML=(searched?'✅ <b>Google Search works.</b> ':'🟡 It answered, but didn\'t say it searched. ')+'Gemini said: “'+esc(txt.slice(0,160))+'”';
+  });}).catch(function(e){if(out)out.textContent='Couldn\'t reach Gemini: '+(e.message||e);});
+}
 
 // ════════════════════════════════════════════════════════════════
 //  IMPORT FROM DECADE JOURNAL (same Firebase room: rooms/<room>/data/items)
