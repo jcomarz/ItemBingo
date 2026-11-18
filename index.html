@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.30';
+var APP_VERSION='v2.31';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -330,7 +330,7 @@ var L={me:'',theme:'',sticker:true,tab:'items',catFilter:'all',personFilter:'all
   bgModel:'isnet_fp16',keepOrig:false,autoTidy:true,autoProcess:'none',syncKeys:false,activeCard:''};
 try{Object.assign(L,JSON.parse(localStorage.getItem(LS_KEY)||'{}'));}catch(e){}
 function svL(){var js=JSON.stringify(L);try{localStorage.setItem(LS_KEY,js);}catch(e){}if(typeof idbPut==='function')idbPut('state','local',js);}
-var SETTING_KEYS=['autoTidy','keepOrig','serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
+var SETTING_KEYS=['autoTidy','keepOrig','serperKey','corsProxy','claudeKey','claudeModel','geminiTextModel','idProvider','gPlacesKey','geminiKey','visionKey','openaiKey','geminiModel','openaiModel','aiProvider','bgModel','autoProcess','syncKeys','sticker','theme','me'];
 // If Chrome wiped localStorage, pull settings back from the IndexedDB mirror
 function restoreLocalSettings(cb){
   if(localStorage.getItem(LS_KEY)){svL();return cb(false);}
@@ -2166,6 +2166,8 @@ function openSettings(sec){
     '<div class="row" style="margin-top:6px;align-items:center;gap:6px"><span class="hint">Daily limit</span><input class="m-in" type="number" min="1" step="1" style="width:90px;padding:6px 8px" value="'+gpCap()+'" onchange="gpSetCap(this.value)"><span class="hint">calls/day per device · repeat searches are cached and free</span></div></div>';
   // AI
   var djk=djStore().anthropicKey;
+  h+='<div class="sec" id="sec-vision"><h4>🌐 Web match (Cloud Vision)</h4><div class="hint">Lens-style identify for 🔎 Identify in the tray. Needs a Google Cloud key that starts with <b>AIza</b> (not an AI Studio “AQ.” key), with Cloud Vision API enabled. First 1,000 photos a month free · '+visMonthCount()+' used this month.</div>'+
+    '<input class="m-in" type="password" placeholder="AIza…" value="'+esc(L.visionKey||'')+'" onchange="var v=this.value.trim();if(/^AQ\\./.test(v)){toast(\'That\\\'s an AI Studio key — Cloud Vision needs one starting with AIza\',5000);}L.visionKey=v;svL();syncKeysNow();toast(v?\'Cloud Vision key saved\':\'Cloud Vision key removed\');" style="margin-top:6px"></div>';
   h+='<div class="sec" id="sec-id"><h4>🔎 Identify from a description</h4><div class="hint">Turns “Jordan with a strap, grey fuzzy tongue” into exact model names. Claude is great at sneakers/streetwear; Gemini\'s text models have a free tier and can search the web.</div>'+
     '<div class="seg" style="margin-top:8px">'+[['auto','Auto'],['claude','Claude'],['gemini','Gemini']].map(function(o){return'<button class="'+((L.idProvider||'auto')===o[0]?'on':'')+'" onclick="L.idProvider=\''+o[0]+'\';svL();openSettings(\'id\')">'+o[1]+'</button>';}).join('')+'</div>'+
     '<input class="m-in" type="password" placeholder="Claude API key (sk-ant-…)'+(djk?' — using Decade Journal\'s':'')+'" value="'+esc(L.claudeKey||'')+'" onchange="L.claudeKey=this.value.trim();svL()" style="margin-top:8px">'+
@@ -2217,8 +2219,8 @@ function openSettings(sec){
   if(sec){var el=$('sec-'+sec);if(el)el.scrollIntoView({block:'start'});}
 }
 function setAI(k,v,quiet){L[k]=v;svL();if(/Key$/.test(k))syncKeysNow();if(!quiet)openSettings('ai');}
-function syncKeysNow(){if(!L.syncKeys)return;put('meta',{id:'keys',gemini:L.geminiKey||'',openai:L.openaiKey||''});}
-function adoptSyncedKeys(){var k=S.meta&&S.meta.keys;if(!k)return;var ch=false;if(k.gemini&&!L.geminiKey){L.geminiKey=k.gemini;ch=true;}if(k.openai&&!L.openaiKey){L.openaiKey=k.openai;ch=true;}if(ch){L.syncKeys=true;svL();}}
+function syncKeysNow(){if(!L.syncKeys)return;put('meta',{id:'keys',gemini:L.geminiKey||'',openai:L.openaiKey||'',vision:L.visionKey||''});}
+function adoptSyncedKeys(){var k=S.meta&&S.meta.keys;if(!k)return;var ch=false;if(k.gemini&&!L.geminiKey){L.geminiKey=k.gemini;ch=true;}if(k.openai&&!L.openaiKey){L.openaiKey=k.openai;ch=true;}if(k.vision&&!L.visionKey){L.visionKey=k.vision;ch=true;}if(ch){L.syncKeys=true;svL();}}
 function fbConnectForm(){
   var cfg={apiKey:$('fb-key').value.trim(),databaseURL:$('fb-url').value.trim().replace(/\/$/,''),projectId:$('fb-pid').value.trim()};
   var room=$('fb-room').value.trim().replace(/[^a-zA-Z0-9_-]/g,'');
