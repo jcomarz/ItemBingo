@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.28';
+var APP_VERSION='v2.29';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -4075,7 +4075,8 @@ function openBidReview(){
 function _bidCap(){if(!BIDR)return;BIDR.rows.forEach(function(w,i){var e=$('bid-n'+i);if(e){if(/https?:\/\//i.test(e.value)){var sp=linkShareParse(e.value);if(sp.url){w.r.link=sp.url;e.value=sp.name||linkSlugName(sp.url)||w.name;}}w.name=e.value;}var c=$('bid-u'+i);if(c)w.use=c.checked;});var p=$('bid-photo');if(p)BIDR.photo=p.checked;var q=$('bid-pend');if(q)BIDR.pend=q.checked;}
 function rBidReview(){
   var h='<div class="mo-h"><h3>🔎 Review names</h3><button class="icon-btn" onclick="closeModal(3);BIDR=null">✕</button></div><div class="mo-b" id="bid-b">'+
-    '<div class="hint" style="margin-bottom:8px">Check each guess — tap an alternative to use it, or type a fix. 🔎 opens a StockX search to double-check.</div>';
+    '<div class="hint" style="margin-bottom:6px">Check each guess — tap an alternative to use it, or type a fix. 🔍 opens the photo in Google Lens · 📋 pastes a copied StockX link · 🔎 searches StockX.</div>'+
+    '<div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap"><button class="btn btn-s btn-sm" onclick="bidRedo(false)">↻ Redo ticked guesses</button><button class="btn btn-g btn-sm" onclick="bidTickWeak()">Tick only the weak ones (under 75%)</button></div>';
   h+=BIDR.rows.map(function(w,i){var t=S.tray[w.id],d=trayDraft(t),c=w.r.confidence,col=c>=0.75?'#16a34a':c>=0.45?'#d97706':'#dc2626';
     return'<div class="sec" style="padding:8px;margin-bottom:8px"><div class="row" style="gap:8px;align-items:flex-start">'+
       '<input type="checkbox" id="bid-u'+i+'" '+(w.use?'checked':'')+' style="margin-top:22px" onchange="_bidCap();rBidReview()">'+
@@ -4245,6 +4246,19 @@ function bidDupHTML(w,i){
     '<div class="row" style="gap:8px;align-items:center">'+(th?'<div class="tray-img" style="width:40px;height:40px;flex-shrink:0">'+imgHTML(th)+'</div>':'')+
     '<div style="flex:1;min-width:0;font-size:12px"><b>📚 Already in your library?</b> <span class="hint">('+dm.why+')</span><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(dm.it.name)+'</div><div class="hint">'+ns+' sighting'+(ns===1?'':'s')+'</div></div></div>'+
     '<div class="chips" style="margin-top:6px;flex-wrap:wrap"><button class="chip'+(on?' on':'')+'" onclick="_bidCap();BIDR.rows['+i+'].dupChoice=true;rBidReview()">✓ Same — add sighting</button><button class="chip'+(!on?' on':'')+'" onclick="_bidCap();BIDR.rows['+i+'].dupChoice=false;rBidReview()">＋ New item</button></div></div>';
+}
+
+// ── redo: clear the ticked rows' saved guesses (drafts stay) and identify them again, e.g. with 🌐 Web match ──
+function bidTickWeak(){_bidCap();BIDR.rows.forEach(function(w){w.use=!w.r.link&&(w.r.confidence||0)<0.75;});rBidReview();toast(BIDR.rows.filter(function(w){return w.use;}).length+' weak guesses ticked');}
+function bidRedo(){
+  _bidCap();var rows=BIDR.rows.filter(function(w){return w.use&&S.tray[w.id];});
+  if(!rows.length)return toast('Tick the rows to redo');
+  if(!confirm('Clear '+rows.length+' guess'+(rows.length===1?'':'es')+' and identify '+(rows.length===1?'it':'them')+' again? The drafts and their photos stay.'))return;
+  bidSaveEdits();
+  var ids={};rows.forEach(function(w){ids[w.id]=1;});
+  trayList().forEach(function(t){var want=!!ids[t.id];var x=clone(t),ch=false;if(want&&x.idRes){delete x.idRes;ch=true;}if(!!x.sel!==want){x.sel=want;ch=true;}if(ch)put('tray',x);});
+  closeModal(3);BIDR=null;BID.st={};BID.total=0;rTray();
+  openIdChooser(trayList().filter(function(t){return ids[t.id];}));
 }
 
 // ════════════ 📍 GROUP BY PLACE — cluster tray drafts by photo GPS + day, deploy each group to its own place ════════════
