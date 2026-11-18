@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.29';
+var APP_VERSION='v2.30';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -4190,7 +4190,8 @@ function openIdChooser(list){
   var h='<div class="mo-h"><h3>🔎 Identify '+list.length+'</h3><button class="icon-btn" onclick="closeModal(3)">✕</button></div><div class="mo-b">'+
     '<label class="sec" style="display:flex;gap:10px;padding:10px;cursor:pointer;'+(mode==='web'?'border-color:var(--ink)':'')+'"><input type="radio" name="idm" value="web" '+(mode==='web'?'checked':'')+'><span><b>🌐 Web match</b> — Lens-style<div class="hint">Matches your photo against images on the web and grabs the StockX listing when it finds one; otherwise the AI names it using what the web found. Google Cloud Vision: first 1,000 photos a month free ('+visMonthCount()+' used this month). Needs billing on + Cloud Vision API enabled for the key\'s project.</div></span></label>'+
     '<label class="sec" style="display:flex;gap:10px;padding:10px;cursor:pointer;margin-top:8px;'+(mode==='ai'?'border-color:var(--ink)':'')+'"><input type="radio" name="idm" value="ai" '+(mode==='ai'?'checked':'')+'><span><b>🤖 AI guess</b><div class="hint">Gemini names it from what it sees. Free, but weaker on close colourways and collabs.</div></span></label>'+
-    '<div class="m-lbl" style="margin-top:10px">Google key for Cloud Vision <span class="r hint">blank = use your Gemini key</span></div><input class="m-in" id="idm-vk" placeholder="AIza…" value="'+esc(L.visionKey||'')+'">'+
+    '<div class="m-lbl" style="margin-top:10px">Google Cloud key for Cloud Vision <span class="r hint">starts with AIza</span></div><input class="m-in" id="idm-vk" placeholder="AIza…" value="'+esc(L.visionKey||'')+'">'+
+    (!visionKey()?'<div class="hint" style="margin-top:4px">AI Studio\'s “AQ.” keys only work for Gemini. Make one in Google Cloud Console → APIs &amp; Services → Credentials → <b>Create credentials → API key</b>, and restrict it to Cloud Vision API.</div>':'')+
     '<div class="hint" style="margin-top:8px">Still unsure on one? In the review, 🔍 opens that photo in the real Google Lens — share the StockX result back and it lands on that row.</div>'+
     '</div><div class="mo-f"><button class="btn btn-s" onclick="closeModal(3)">Cancel</button><button class="btn btn-p" onclick="idChooserGo()">Start</button></div>';
   BID._pending=list;openModal(h,3);
@@ -4198,7 +4199,7 @@ function openIdChooser(list){
 function idChooserGo(){
   var m=(document.querySelector('input[name=idm]:checked')||{}).value||'ai',vk=($('idm-vk')||{}).value||'';
   L.visionKey=vk.trim();L.idMode=m;svL();var list=BID._pending||bidCandidates();closeModal(3);
-  if(m==='web'){if(!visionKey())return toast('Add a Google key first');return runBatchWeb(list);}
+  if(m==='web'){if(/^AQ\./.test(L.visionKey||''))return toast('That\'s an AI Studio key — Cloud Vision needs a Google Cloud key starting with AIza',5000);if(!visionKey())return toast('Paste a Google Cloud key (starts with AIza) first',4000);return runBatchWeb(list);}
   if(!idProvider())return toast('Add a Gemini key in Settings → AI first',4000);
   runBatchID(list);
 }
@@ -4206,7 +4207,10 @@ function runBatchWeb(list){
   BID={running:true,st:{},res:{},done:0,total:list.length,err:'',via:'web'};
   list.forEach(function(t){BID.st[t.id]='wait';});if(TRY)rTray();
   var q=list.slice(),active=0,stop=false;
-  var finish=function(){BID.running=false;if(TRY)rTray();if(BID.err&&!bidPending().length)return alert('Web match failed: '+BID.err);openBidReview();};
+  var finish=function(){BID.running=false;if(TRY)rTray();
+    if(BID.err&&!Object.keys(BID.res).length){var msg=BID.err.replace(/^KEYTYPE: /,'');BID.st={};BID.total=0;if(TRY)rTray();
+      if(confirm('Web match couldn\'t run:\n\n'+msg+'\n\nUse 🤖 AI guess for these instead for now?')){if(idProvider())runBatchID(list);else toast('Add a Gemini key in Settings → AI',4000);}return;}
+    openBidReview();};
   var pump=function(){
     if(stop||!q.length){if(active===0)finish();return;}
     var t=q.shift();active++;BID.st[t.id]='run';if(TRY)rTray();
@@ -4216,7 +4220,7 @@ function runBatchWeb(list){
       if(!r||!r.name)throw new Error('no match');
       BID.res[t.id]=r;BID.st[t.id]='ok';var cur=S.tray[t.id];if(cur){var x=clone(cur);x.idRes=r;put('tray',x);}
     }).catch(function(e){BID.st[t.id]=(e.message||'failed').slice(0,80);if(!BID.err)BID.err=e.message;
-      if(/billing|Enable "Cloud Vision|API key not valid|PERMISSION_DENIED/i.test(e.message||'')){stop=true;}})
+      if(/billing|Enable "Cloud Vision|KEYTYPE|isn't valid|restricted|PERMISSION_DENIED/i.test(e.message||'')){stop=true;q.forEach(function(r){delete BID.st[r.id];});q.length=0;}})
     .then(function(){BID.done++;active--;if(TRY)rTray();pump();});
   };
   pump();pump();
@@ -4436,7 +4440,7 @@ function tlApplyFiles(files){
 // Matches the photo against images across the web (like Lens) and looks for the StockX/GOAT listing among
 // the matching pages and images. If no listing turns up, the web's best guesses are handed to Gemini as clues.
 // Free for the first 1,000 photos a month; the key's Google Cloud project needs billing on + Cloud Vision API enabled.
-function visionKey(){return L.visionKey||L.geminiKey||gKey()||'';}
+function visionKey(){var c=[L.visionKey,L.geminiKey,gKey()].filter(function(k){return k&&!/^AQ\./.test(k);});return c[0]||'';}
 function visMonthKey(){return'vis_'+tod().slice(0,7);}
 function visMonthCount(){try{return parseInt(localStorage.getItem(visMonthKey()),10)||0;}catch(e){return 0;}}
 function _visCount(){try{localStorage.setItem(visMonthKey(),String(visMonthCount()+1));}catch(e){}}
@@ -4452,6 +4456,9 @@ function webDetect(dataUrl){
     if(j.error){var m=j.error.message||'Vision error';
       if(/billing/i.test(m))m='Turn on billing for this key\'s Google Cloud project (the first 1,000 photos a month stay free)';
       else if(/has not been used|disabled|SERVICE_DISABLED/i.test(m))m='Enable "Cloud Vision API" for this key\'s project in Google Cloud Console';
+      else if(/API keys are not supported|OAuth2|ACCESS_TOKEN_TYPE/i.test(m))m='KEYTYPE: That key can\'t call Cloud Vision (AI Studio "AQ." keys only work for Gemini). Make a standard key: Google Cloud Console → APIs & Services → Credentials → Create credentials → API key (starts with AIza), restricted to Cloud Vision API.';
+      else if(/API key not valid|API_KEY_INVALID/i.test(m))m='That Cloud Vision key isn\'t valid — check you pasted the whole key';
+      else if(/referer|blocked/i.test(m))m='That key is restricted — allow jcomarz.github.io (or remove the website restriction) for Cloud Vision';
       throw new Error(m);}
     var r=(j.responses||[])[0]||{};if(r.error)throw new Error(r.error.message||'Vision error');return r.webDetection||{};
   });
