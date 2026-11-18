@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.33';
+var APP_VERSION='v2.34';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -2587,10 +2587,11 @@ function _claudeID(sys,user,img,cb){
 // so on a quota/404 error walk down a list of cheaper models (without search) until one answers.
 function _geminiID(sys,user,img,cb){
   var parts=[];(img?(Array.isArray(img)?img:[img]):[]).forEach(function(im,k){if(Array.isArray(img))parts.push({text:'Photo '+(k+1)+':'});parts.push({inline_data:{mime_type:'image/jpeg',data:im.split(',')[1]}});});parts.push({text:user});
-  var first=(L.geminiTextModel||'gemini-flash-latest').trim();
-  var chain=[[first,true],[first,false]];
-  [L.geminiTextOK,'gemini-flash-lite-latest','gemini-2.5-flash','gemini-2.5-flash-lite','gemini-flash-latest'].forEach(function(m){if(m&&!chain.some(function(c){return c[0]===m&&!c[1];}))chain.push([m,false]);});
-  if(L.geminiTextOK&&L.geminiTextOK!==first)chain.unshift([L.geminiTextOK,false]);// start with what worked last time
+  var first=(L.geminiTextModel||'gemini-flash-latest').trim(),ok=L.geminiTextOK||first;
+  // Google Search grounding first (that's what makes Lens's AI Overview accurate) unless this key recently couldn't use it
+  var canSearch=!(L.geminiNoSearchUntil&&Date.now()<L.geminiNoSearchUntil);
+  var chain=canSearch?[[ok,true]]:[];if(canSearch&&ok!==first)chain.push([first,true]);
+  [ok,first,'gemini-flash-lite-latest','gemini-2.5-flash','gemini-2.5-flash-lite','gemini-flash-latest'].forEach(function(m){if(m&&!chain.some(function(c){return c[0]===m&&!c[1];}))chain.push([m,false]);});
   var i=0,lastErr='';
   (function go(){
     if(i>=chain.length){var e=new Error(lastErr);e.friendly=true;return cb(e);}
@@ -2600,7 +2601,8 @@ function _geminiID(sys,user,img,cb){
     fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':L.geminiKey},body:JSON.stringify(body)})
     .then(function(r){return r.json().then(function(j){
       if(!r.ok){lastErr=(j.error&&j.error.message)||('Gemini HTTP '+r.status);
-        if(r.status===429||r.status===404||r.status===400||r.status===503){console.warn('Gemini',m,useSearch?'+search':'',r.status,lastErr);return go();}
+        if(useSearch&&(r.status===400||r.status===403||(r.status===429&&/limit: ?0|grounding|search/i.test(lastErr)))){L.geminiNoSearchUntil=Date.now()+864e5;svL();}
+        if(r.status===429||r.status===404||r.status===400||r.status===403||r.status===503){console.warn('Gemini',m,useSearch?'+search':'',r.status,lastErr);return go();}
         throw new Error(lastErr);}
       var p=((j.candidates||[])[0]||{}).content,txt=(p&&p.parts||[]).map(function(x){return x.text||'';}).join('');
       if(!txt){lastErr='empty reply from '+m;return go();}
@@ -4451,11 +4453,10 @@ function _visCount(){try{localStorage.setItem(visMonthKey(),String(visMonthCount
 function _wmStrip(s){return String(s||'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&#39;|&apos;/g,"'").replace(/&quot;/g,'"').trim();}
 // "Jordan 1 Retro High OG Chicago - StockX" → "Jordan 1 Retro High OG Chicago"
 function _wmTitle(t){return _wmStrip(t).replace(/\s*[|\-–—:]\s*(stockx|goat|flight club|ebay|grailed|klekt|kicks crew|stadium goods|sneakers?|buy.*|shop.*|men'?s.*|women'?s shoes.*)\s*$/i,'').replace(/^(buy|shop)\s+/i,'').trim();}
-function webDetect(dataUrl){
+function visionAnnotate(dataUrl,features){
   var key=visionKey();if(!key)return Promise.reject(new Error('No Google key for Cloud Vision'));
-  _visCount();
   return fetch('https://vision.googleapis.com/v1/images:annotate?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({requests:[{image:{content:dataUrl.split(',')[1]},features:[{type:'WEB_DETECTION',maxResults:25}]}]})})
+    body:JSON.stringify({requests:[{image:{content:dataUrl.split(',')[1]},features:features}]})})
   .then(function(r){return r.json();}).then(function(j){
     if(j.error){var m=j.error.message||'Vision error';
       if(/billing/i.test(m))m='Turn on billing for this key\'s Google Cloud project (the first 1,000 photos a month stay free)';
@@ -4464,8 +4465,37 @@ function webDetect(dataUrl){
       else if(/API key not valid|API_KEY_INVALID/i.test(m))m='That Cloud Vision key isn\'t valid — check you pasted the whole key';
       else if(/referer|blocked/i.test(m))m='That key is restricted — allow jcomarz.github.io (or remove the website restriction) for Cloud Vision';
       throw new Error(m);}
-    var r=(j.responses||[])[0]||{};if(r.error)throw new Error(r.error.message||'Vision error');return r.webDetection||{};
+    var r=(j.responses||[])[0]||{};if(r.error)throw new Error(r.error.message||'Vision error');return r;
   });
+}
+function webDetect(dataUrl){_visCount();return visionAnnotate(dataUrl,[{type:'WEB_DETECTION',maxResults:25}]).then(function(r){return r.webDetection||{};});}
+// ── Lens step 1: find the product in the photo and crop to it (shelves, floor and hands drown out web matching) ──
+var WM_OBJ=/shoe|footwear|sneaker|boot|sandal|clothing|top|outerwear|shirt|t-shirt|jacket|coat|sweater|hoodie|pants|jeans|shorts|dress|bag|handbag|backpack|hat|cap|toy|figurine|doll|plush|watch|sunglasses|car|vehicle/i;
+function wmFocus(dataUrl){
+  return visionAnnotate(dataUrl,[{type:'OBJECT_LOCALIZATION',maxResults:10},{type:'TEXT_DETECTION',maxResults:1}]).then(function(r){
+    var objs=(r.localizedObjectAnnotations||[]).filter(function(o){return o.boundingPoly&&!/^person$/i.test(o.name);});
+    var area=function(o){var v=o.boundingPoly.normalizedVertices||[];var xs=v.map(function(p){return p.x||0;}),ys=v.map(function(p){return p.y||0;});return(Math.max.apply(null,xs)-Math.min.apply(null,xs))*(Math.max.apply(null,ys)-Math.min.apply(null,ys));};
+    var pick=objs.filter(function(o){return WM_OBJ.test(o.name);}).sort(function(a,b){return(b.score*area(b))-(a.score*area(a));})[0];
+    var text=((r.textAnnotations||[])[0]||{}).description||'';
+    return{box:pick?pick.boundingPoly.normalizedVertices:null,what:pick?pick.name:'',text:text};
+  }).catch(function(e){if(/KEYTYPE|billing|Enable "Cloud|isn't valid|restricted/.test(e.message||''))throw e;return{box:null,what:'',text:''};});
+}
+function wmCrop(dataUrl,v){
+  if(!v||v.length<3)return Promise.resolve(dataUrl);
+  return new Promise(function(res){var im=new Image();im.onload=function(){
+    var xs=v.map(function(p){return p.x||0;}),ys=v.map(function(p){return p.y||0;});
+    var x0=Math.min.apply(null,xs),x1=Math.max.apply(null,xs),y0=Math.min.apply(null,ys),y1=Math.max.apply(null,ys),px=(x1-x0)*0.08,py=(y1-y0)*0.08;
+    x0=Math.max(0,x0-px);y0=Math.max(0,y0-py);x1=Math.min(1,x1+px);y1=Math.min(1,y1+py);
+    var w=Math.round((x1-x0)*im.width),h=Math.round((y1-y0)*im.height);if(w<80||h<80||(x1-x0)*(y1-y0)>0.92)return res(dataUrl);
+    var c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(im,Math.round(x0*im.width),Math.round(y0*im.height),w,h,0,0,w,h);res(c.toDataURL('image/jpeg',0.9));};
+    im.onerror=function(){res(dataUrl);};im.src=dataUrl;});
+}
+// readable bits of printed text: style codes, model words ("NLOCK", "URC564KY", "990v6")
+function wmTextClues(t){
+  var out=[],seen={};String(t||'').split(/[\s\n]+/).forEach(function(w){w=w.replace(/[^A-Za-z0-9\-\/.]/g,'');
+    if(w.length<3||w.length>18||seen[w.toUpperCase()])return;
+    if(/^[A-Z]{1,4}\d{2,}[A-Z0-9\-]*$|^\d{3,}[A-Z0-9\-]+$|^[A-Z]{2,}\d+[A-Z]*$|^[A-Z0-9]{2,}-\d{2,}$/i.test(w)||/^[A-Z]{4,}$/.test(w)){seen[w.toUpperCase()]=1;out.push(w);}});
+  return out.slice(0,8);
 }
 // pull the best product listing out of a web-detection result
 var WM_RETRY=15000;
@@ -4493,12 +4523,17 @@ function wmPick(wd){
 }
 // one draft: web match → (if no listing) Gemini with the web clues
 function wmIdentify(dataUrl){
-  return webDetect(dataUrl).then(function(wd){
+  var focus=null,crop=dataUrl;
+  return wmFocus(dataUrl).then(function(f){focus=f;return wmCrop(dataUrl,f.box);}).then(function(c){crop=c;return webDetect(crop);}).then(function(wd){
+    dataUrl=crop;var tclues=wmTextClues(focus&&focus.text);
     var pk=wmPick(wd);
     if(pk.name&&!pk.guessLink)return{name:pk.name,link:pk.link,confidence:pk.how==='StockX page'?0.92:0.8,alts:pk.alts,why:'🌐 Web match: '+pk.how};
     var prov=idProvider();
     if(!prov)return pk.name?{name:pk.name,link:pk.link,confidence:0.6,alts:pk.alts,why:'🌐 Web match: '+pk.how}:{name:'',confidence:0.05,alts:pk.hints.slice(0,2),why:'🌐 No product match — use 🔍 Lens for this one'};
-    var clues=(pk.name?'Possible StockX title from a matching image: "'+pk.name+'". ':'')+'Google web search of this photo suggests: '+pk.hints.slice(0,10).map(function(h){return'"'+h+'"';}).join(', ')+'.';
+    var clues=(pk.name?'Possible StockX title from a matching image: "'+pk.name+'". ':'')+(pk.hints.length?'Google web search of this photo suggests: '+pk.hints.slice(0,10).map(function(h){return'"'+h+'"';}).join(', ')+'. ':'')+
+      (tclues.length?'Text printed on the item/tags: '+tclues.join(', ')+' — search these exactly, they are often model names or style codes. ':'')+
+      'If you can search the web, search the distinctive details (model text, style code, logo) to confirm the exact model and colorway before answering.';
+    pk.alts=pk.alts||[];
     var ask=function(tries){return new Promise(function(res,rej){
       (prov==='claude'?_claudeID:_geminiID)(BID_SYS,'Identify this 1 photo. '+clues+' Use these web clues only when they fit what you see — ignore clues about the room or store. Return exactly 1 object.',[dataUrl],function(e,txt){
         if(e){var rl=/429|RATE|quota|exhausted|overloaded|503/i.test(e.message||String(e));
@@ -4507,7 +4542,7 @@ function wmIdentify(dataUrl){
           return res({name:guess,link:guess?pk.link:'',confidence:guess?0.45:0.05,alts:pk.hints.slice(0,2),why:'🌐 Web clues only — the AI '+(rl?'was rate-limited':'didn\'t answer')+'; use 🔍 Lens for this one'});}
         try{var r=_bidParse(txt)[0]||{};r.confidence=Math.max(0,Math.min(1,+r.confidence||0));
           if(pk.link&&pk.name&&r.name&&_qaTok(r.name).join(' ').indexOf(_qaTok(pk.name).slice(0,3).join(' '))>=0)r.link=pk.link;
-          r.why='🌐 Web clues + AI'+(r.why?': '+r.why:'');res(r);}catch(x){rej(x);}
+          r.why='🌐 '+(focus&&focus.box?'Cropped to the '+(focus.what||'item').toLowerCase()+' · ':'')+'web clues + AI'+(tclues.length?' · read: '+tclues.slice(0,4).join(', '):'')+(r.why?' — '+r.why:'');res(r);}catch(x){rej(x);}
       });
     });};
     return ask(0);
