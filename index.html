@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.31';
+var APP_VERSION='v2.32';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -4086,7 +4086,7 @@ function rBidReview(){
       '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><span style="font-size:11px;font-weight:800;color:'+col+'">'+Math.round(c*100)+'%</span>'+(d.name?'<span class="hint" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">was: '+esc(d.name)+'</span>':'<span style="flex:1"></span>')+
         '<button class="btn btn-g btn-sm" style="padding:3px 8px" title="Discard this guess" onclick="bidDiscard('+i+')">✕</button>'+
         '<button class="btn btn-p btn-sm" style="padding:3px 10px" onclick="bidApply('+i+')">✓ Apply</button></div>'+
-      '<div class="row" style="gap:4px;margin-top:3px"><input class="m-in" id="bid-n'+i+'" style="flex:1;min-width:0;padding:7px 8px;font-size:13px" value="'+esc(w.name)+'">'+
+      '<div class="row" style="gap:4px;margin-top:3px"><input class="m-in" id="bid-n'+i+'" style="flex:1;min-width:0;padding:7px 8px;font-size:13px" placeholder="Not found — try 🔍 Lens" value="'+esc(w.name)+'">'+
       '<button class="icon-btn" title="Open this photo in Google Lens, then share the StockX result back" onclick="bidLens('+i+')">🔍</button>'+
       '<button class="icon-btn" title="Paste a copied StockX link or share text into this one" onclick="bidPasteRow('+i+')">📋</button>'+
       '<button class="icon-btn" title="Find on StockX, then Share → Spotted to link it here" onclick="_bidCap();bidFindOnStockx(\''+w.id+'\',$(\'bid-n'+i+'\').value)">🔎</button></div>'+
@@ -4219,7 +4219,7 @@ function runBatchWeb(list){
     new Promise(function(res){imgGet(trayDraft(t).orig||trayDraft(t).img,function(v){res(v);});})
     .then(function(d){if(!d)throw new Error('photo missing');return resizeData(d,1024,'jpeg',0.88);})
     .then(wmIdentify).then(function(r){
-      if(!r||!r.name)throw new Error('no match');
+      if(!r)throw new Error('no match');
       BID.res[t.id]=r;BID.st[t.id]='ok';var cur=S.tray[t.id];if(cur){var x=clone(cur);x.idRes=r;put('tray',x);}
     }).catch(function(e){BID.st[t.id]=(e.message||'failed').slice(0,80);if(!BID.err)BID.err=e.message;
       if(/billing|Enable "Cloud Vision|KEYTYPE|isn't valid|restricted|PERMISSION_DENIED/i.test(e.message||'')){stop=true;q.forEach(function(r){delete BID.st[r.id];});q.length=0;}})
@@ -4466,6 +4466,9 @@ function webDetect(dataUrl){
   });
 }
 // pull the best product listing out of a web-detection result
+var WM_RETRY=15000;
+var WM_GENERIC=/^(architecture|building|interior design|floor|flooring|ceiling|shelf|shelving|retail|store|shop|shopping|outlet store|warehouse|room|product|footwear|shoe|shoes|sneakers?|athletic shoe|walking shoe|running shoe|sportswear|outdoor shoe|basketball shoe|skate shoe|boot|clothing|t-shirt|tshirt|shirt|sleeve|jacket|hoodie|textile|fashion|font|brand|logo|pattern|material property|leather|beige|white|black|grey|gray|tan|composite material|plastic|metal|still life photography|photograph|image|design|style|fashion accessory|bag|handbag)$/i;
+function _wmUseful(h){h=String(h||'').trim();return h.length>2&&!WM_GENERIC.test(h);}
 function wmPick(wd){
   var pages=(wd.pagesWithMatchingImages||[]).map(function(p){return{url:p.url,title:_wmTitle(p.pageTitle),full:(p.fullMatchingImages||[]).length};});
   var imgs=[].concat(wd.fullMatchingImages||[],wd.partialMatchingImages||[],wd.visuallySimilarImages||[]).map(function(x){return x.url;});
@@ -4481,8 +4484,8 @@ function wmPick(wd){
   else if(sxImg.length){var n=sxImg[0];res.name=n.replace(/-/g,' ');res.link='https://stockx.com/'+n.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');res.how='StockX image';res.guessLink=true;}
   else if(shop.length){res.name=shop[0].title;res.link=shop[0].url.split('?')[0];res.how=(linkSite(shop[0].url)||{}).name+' page';}
   res.alts=[];shop.concat(pages).forEach(function(p){if(p.title&&p.title!==res.name&&res.alts.indexOf(p.title)<0&&res.alts.length<2&&p.title.length<90)res.alts.push(p.title);});
-  (wd.bestGuessLabels||[]).forEach(function(l){if(l.label)res.hints.push(l.label);});
-  (wd.webEntities||[]).filter(function(e){return e.description&&(e.score||0)>0.4;}).slice(0,8).forEach(function(e){res.hints.push(e.description);});
+  (wd.bestGuessLabels||[]).forEach(function(l){if(_wmUseful(l.label))res.hints.push(l.label);});
+  (wd.webEntities||[]).filter(function(e){return _wmUseful(e.description)&&(e.score||0)>0.4;}).slice(0,8).forEach(function(e){res.hints.push(e.description);});
   pages.slice(0,6).forEach(function(p){if(p.title)res.hints.push(p.title);});
   return res;
 }
@@ -4492,16 +4495,20 @@ function wmIdentify(dataUrl){
     var pk=wmPick(wd);
     if(pk.name&&!pk.guessLink)return{name:pk.name,link:pk.link,confidence:pk.how==='StockX page'?0.92:0.8,alts:pk.alts,why:'🌐 Web match: '+pk.how};
     var prov=idProvider();
-    if(!prov)return pk.name?{name:pk.name,link:pk.link,confidence:0.6,alts:pk.alts,why:'🌐 Web match: '+pk.how}:{name:pk.hints[0]||'',confidence:0.3,alts:pk.hints.slice(1,3),why:'🌐 Web guess only'};
+    if(!prov)return pk.name?{name:pk.name,link:pk.link,confidence:0.6,alts:pk.alts,why:'🌐 Web match: '+pk.how}:{name:'',confidence:0.05,alts:pk.hints.slice(0,2),why:'🌐 No product match — use 🔍 Lens for this one'};
     var clues=(pk.name?'Possible StockX title from a matching image: "'+pk.name+'". ':'')+'Google web search of this photo suggests: '+pk.hints.slice(0,10).map(function(h){return'"'+h+'"';}).join(', ')+'.';
-    return new Promise(function(res,rej){
-      (prov==='claude'?_claudeID:_geminiID)(BID_SYS,'Identify this 1 photo. '+clues+' Use these web clues when they fit what you see. Return exactly 1 object.',[dataUrl],function(e,txt){
-        if(e)return pk.name||pk.hints[0]?res({name:pk.name||pk.hints[0],link:pk.link,confidence:0.45,alts:pk.hints.slice(0,2),why:'🌐 Web clues (AI unavailable)'}):rej(e);
+    var ask=function(tries){return new Promise(function(res,rej){
+      (prov==='claude'?_claudeID:_geminiID)(BID_SYS,'Identify this 1 photo. '+clues+' Use these web clues only when they fit what you see — ignore clues about the room or store. Return exactly 1 object.',[dataUrl],function(e,txt){
+        if(e){var rl=/429|RATE|quota|exhausted|overloaded|503/i.test(e.message||String(e));
+          if(rl&&tries<3)return setTimeout(function(){ask(tries+1).then(res,rej);},(tries+1)*WM_RETRY);
+          var guess=pk.name||'';
+          return res({name:guess,link:guess?pk.link:'',confidence:guess?0.45:0.05,alts:pk.hints.slice(0,2),why:'🌐 Web clues only — the AI '+(rl?'was rate-limited':'didn\'t answer')+'; use 🔍 Lens for this one'});}
         try{var r=_bidParse(txt)[0]||{};r.confidence=Math.max(0,Math.min(1,+r.confidence||0));
           if(pk.link&&pk.name&&r.name&&_qaTok(r.name).join(' ').indexOf(_qaTok(pk.name).slice(0,3).join(' '))>=0)r.link=pk.link;
           r.why='🌐 Web clues + AI'+(r.why?': '+r.why:'');res(r);}catch(x){rej(x);}
       });
-    });
+    });};
+    return ask(0);
   });
 }
 // ── 🔍 hand one draft's photo to the real Google Lens app; share the StockX result back and it lands on this row ──
