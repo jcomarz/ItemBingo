@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.38';
+var APP_VERSION='v2.39';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -2168,6 +2168,7 @@ function openSettings(sec){
   var djk=djStore().anthropicKey;
   h+='<div class="sec" id="sec-vision"><h4>🌐 Web match (Cloud Vision)</h4><div class="hint">Lens-style identify for 🔎 Identify in the tray. Needs a Google Cloud key that starts with <b>AIza</b> (not an AI Studio “AQ.” key), with Cloud Vision API enabled. First 1,000 photos a month free · '+visMonthCount()+' used this month.</div>'+
     '<input class="m-in" type="password" placeholder="AIza…" value="'+esc(L.visionKey||'')+'" onchange="var v=this.value.trim();if(/^AQ\\./.test(v)){toast(\'That\\\'s an AI Studio key — Cloud Vision needs one starting with AIza\',5000);}L.visionKey=v;svL();syncKeysNow();toast(v?\'Cloud Vision key saved\':\'Cloud Vision key removed\');" style="margin-top:6px"></div>';
+  h+='<div class="sec"><h4>🔍 Lens hand-off</h4><div class="hint">When you send a photo to Google Lens or Circle to Search from Spotted, this word is copied so your keyboard offers it as a one-tap “Add to your search”.</div><input class="m-in" style="margin-top:6px" value="'+esc(lensWord())+'" placeholder="stockx" onchange="L.lensWord=this.value.trim();svL();toast(L.lensWord?\'Lens word: \'+L.lensWord:\'Lens word off\')"></div>';
   h+='<div class="sec" id="sec-gsearch"><h4>🔎 Can Gemini search Google?</h4><div class="hint">Identify is far more accurate when Gemini can look things up (like Lens\'s AI Overview). Google only allows that on <b>paid-tier</b> keys — 5,000 searched lookups a month are free, then $14 per 1,000. A Gemini key made in a project with billing on counts as paid tier.</div>'+
     '<button class="btn btn-s btn-block" style="margin-top:6px" onclick="testGeminiSearch()">Test Google Search with my Gemini key</button><div class="hint" id="gs-res" style="margin-top:6px">'+(L.geminiNoSearchUntil&&Date.now()<L.geminiNoSearchUntil&&L.geminiNoSearchKey===String(L.geminiKey||'').slice(-6)?'⚠️ Last try: your key couldn\'t search.':'')+'</div></div>';
   h+='<div class="sec" id="sec-id"><h4>🔎 Identify from a description</h4><div class="hint">Turns “Jordan with a strap, grey fuzzy tongue” into exact model names. Claude is great at sneakers/streetwear; Gemini\'s text models have a free tier and can search the web.</div>'+
@@ -4294,10 +4295,10 @@ function bidTickAll(on){_bidCap();BIDR.rows.forEach(function(w){w.use=on;});rBid
 // full-screen photo for Circle to Search: long-press the nav bar, circle the item, tap the StockX result → Share → Spotted
 function bidViewPhoto(i){
   _bidCap();var w=BIDR&&BIDR.rows[i];if(!w)return;var t=S.tray[w.id];if(!t)return;var d=trayDraft(t),k=d.orig||d.img;
-  L.linkTarget={id:w.id,at:Date.now()};svL();bidSaveEdits();
+  L.linkTarget={id:w.id,at:Date.now()};svL();bidSaveEdits();lensCopyWord();
   var ov=document.createElement('div');ov.id='bid-full';
   ov.style.cssText='position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center';
-  ov.innerHTML='<div style="position:absolute;top:0;left:0;right:0;padding:12px 14px;display:flex;align-items:center;gap:10px;color:#fff;font-size:13px;background:linear-gradient(#000c,#0000)"><span style="flex:1">Long-press the bar at the bottom → circle the item → tap the StockX result → <b>Share → Spotted</b></span><button class="icon-btn" style="color:#fff;font-size:22px" onclick="document.getElementById(\'bid-full\').remove()">✕</button></div>'+
+  ov.innerHTML='<div style="position:absolute;top:0;left:0;right:0;padding:12px 14px;display:flex;align-items:center;gap:10px;color:#fff;font-size:13px;background:linear-gradient(#000c,#0000)"><span style="flex:1">Long-press the bar at the bottom → circle the item → in “Add to your search” tap the <b>'+esc(lensWord())+'</b> suggestion (copied) → StockX result → <b>Share → Spotted</b></span><button class="icon-btn" style="color:#fff;font-size:22px" onclick="document.getElementById(\'bid-full\').remove()">✕</button></div>'+
     '<div id="bid-full-img" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center"></div>';
   document.body.appendChild(ov);
   imgGet(k,function(data){var box=document.getElementById('bid-full-img');if(!box)return;if(!data){box.innerHTML='<span style="color:#fff">Photo not on this device yet</span>';return;}
@@ -4590,11 +4591,18 @@ function bidLens(i){
       var f=new File([b],'spotted-'+w.id+'.jpg',{type:b.type||'image/jpeg'});
       if(!(navigator.canShare&&navigator.canShare({files:[f]})))return toast('Sharing photos isn\'t supported here — save it and use Lens',4000);
       L.linkTarget={id:w.id,at:Date.now()};svL();bidSaveEdits();
-      toast('Pick Google Lens → tap the StockX result → Share → Spotted',6000);
-      navigator.share({files:[f]}).catch(function(){});
+      var word=lensWord();lensCopyWord();
+      toast('Pick Google Lens → “Add to your search” → tap the “'+word+'” suggestion → StockX result → Share → Spotted',7000);
+      // text rides along in case the Lens target uses it; the clipboard copy is the reliable part
+      var data={files:[f]};if(word&&navigator.canShare&&navigator.canShare({files:[f],text:word}))data.text=word;
+      navigator.share(data).catch(function(){});
     });
   });
 }
+
+// the word you always add in Lens ("stockx"): copied so Gboard offers it as a one-tap suggestion
+function lensWord(){return(L.lensWord!=null?L.lensWord:'stockx');}
+function lensCopyWord(){var w=lensWord();if(!w||!navigator.clipboard||!navigator.clipboard.writeText)return;navigator.clipboard.writeText(w).catch(function(){});}
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){
