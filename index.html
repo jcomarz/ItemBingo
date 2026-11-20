@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.39';
+var APP_VERSION='v2.40';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1394,8 +1394,9 @@ function whoChips(sel,path,rer){
 }
 function toggleWho(arr,pid){if(typeof _imCap==='function')_imCap();if(typeof _smCap==='function')_smCap();var i=arr.indexOf(pid);if(i>=0)arr.splice(i,1);else arr.push(pid);}
 function placeChip(pid,pick,clear){
-  var p=S.places[pid];
-  return '<div class="row"><button class="btn btn-s" style="flex:1;justify-content:flex-start;text-align:left" onclick="'+pick+'">📍 '+(p?'<b>'+esc(p.name)+'</b>'+(p.address?'<span class="hint" style="margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.address)+'</span>':''):'<span style="color:var(--inkFaint)">Add a place…</span>')+'</button>'+(p?'<button class="btn btn-g" onclick="'+clear+'">✕</button>':'')+'</div>';
+  var p=S.places[pid],rec=recentPlaces(6,pid);
+  var chips=rec.length?'<div class="chips" style="flex-wrap:wrap;margin-top:6px"><span class="hint" style="align-self:center">🕘</span>'+rec.map(function(r){return'<button class="chip" style="font-size:12px;padding:5px 10px" onclick="'+esc(pick)+';ppChoose(\''+r.id+'\')">'+esc(r.name.length>26?r.name.slice(0,25)+'…':r.name)+'</button>';}).join('')+'</div>':'';
+  return '<div class="row"><button class="btn btn-s" style="flex:1;justify-content:flex-start;text-align:left" onclick="'+pick+'">📍 '+(p?'<b>'+esc(p.name)+'</b>'+(p.address?'<span class="hint" style="margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.address)+'</span>':''):'<span style="color:var(--inkFaint)">Add a place…</span>')+'</button>'+(p?'<button class="btn btn-g" onclick="'+clear+'">✕</button>':'')+'</div>'+chips;
 }
 function _imPickFirstPlace(){_imCap();openPlacePicker(function(id){IM.first.place=id;rItem();});}
 
@@ -1603,9 +1604,11 @@ function ppResHTML(){
     if(PP.near)h+='<button class="btn btn-s btn-block" style="margin-top:10px" onclick="ppNearApi()">📍 Nearby — look up places right here'+(gKey()?' (Google)':'')+'</button>';
     h+='<div class="m-lbl">'+(PP.src||'Results')+'</div>';h+=PP.results.length?PP.results.map(function(r,i){return'<div class="li" onclick="ppChooseResult('+i+')"><div class="thumb">📍</div><div class="grow"><div class="t">'+esc(r.name)+'</div><div class="s">'+esc(r.address||'')+(r.dist!=null?' · '+r.dist:'')+'</div></div></div>';}).join(''):'<div class="hint" style="padding:6px 0">No map results — tap ✍️ Use typed name to save it as is.</div>';}
   if(!PP.q&&!PP.results){
+    var rec=recentPlaces(10);
+    if(rec.length)h+='<div class="m-lbl">🕘 Recent</div>'+rec.map(function(p){return'<div class="li" onclick="ppChoose(\''+p.id+'\')"><div class="thumb">🕘</div><div class="grow"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+'</div></div></div>';}).join('');
     var used={};vals(S.sightings).forEach(function(x){if(x.place)used[x.place]=(used[x.place]||0)+1;});
     var recent=vals(S.places).sort(function(a,b){return(used[b.id]||0)-(used[a.id]||0)||(b.u||0)-(a.u||0);});
-    if(recent.length)h+='<div class="m-lbl">Your places</div>'+recent.slice(0,40).map(function(p){return'<div class="li"><div class="grow" onclick="ppChoose(\''+p.id+'\')"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+(used[p.id]?' · '+used[p.id]+'×':'')+'</div></div><button class="btn btn-g btn-sm" onclick="ppDelete(\''+p.id+'\')">✕</button></div>';}).join('');
+    if(recent.length)h+='<div class="m-lbl">All your places</div>'+recent.slice(0,40).map(function(p){return'<div class="li"><div class="grow" onclick="ppChoose(\''+p.id+'\')"><div class="t">'+esc(p.name)+'</div><div class="s">'+esc(p.address||'')+(used[p.id]?' · '+used[p.id]+'×':'')+'</div></div><button class="btn btn-g btn-sm" onclick="ppDelete(\''+p.id+'\')">✕</button></div>';}).join('');
     else if(djPlaces().length)h+='<div class="hint" style="margin-top:10px">Type to search your '+djPlaces().length+' Decade Journal places too.</div>';
   }
   return h;
@@ -1622,7 +1625,16 @@ function ppType(v){
   ppPaint();
   if(q.length>=3)debounce('ppsearch',ppSearch,600);else clearTimeout(_dbt.ppsearch);
 }
-function ppChoose(id){var cb=PP.cb;closeModal(3);PP=null;cb(id);}
+function ppChoose(id){var cb=PP.cb;closeModal(3);PP=null;placeTouch(id);cb(id);}
+// ── 🕘 recent places: last used anywhere (your picks on this phone + sightings + newly added, synced) ──
+function placeTouch(id){if(!id)return;var r=(L.recentPlaces||[]).filter(function(x){return x.id!==id;});r.unshift({id:id,t:Date.now()});L.recentPlaces=r.slice(0,20);svL();}
+function recentPlaces(n,skip){
+  var t={},bump=function(id,ts){if(id&&S.places[id]&&ts&&(!t[id]||ts>t[id]))t[id]=ts;};
+  (L.recentPlaces||[]).forEach(function(x){bump(x.id,x.t);});
+  vals(S.sightings).forEach(function(x){bump(x.place,x.u||x.created||(x.date?Date.parse(x.date):0));});
+  vals(S.places).forEach(function(p){bump(p.id,p.created||0);});
+  return Object.keys(t).filter(function(id){return id!==skip;}).sort(function(a,b){return t[b]-t[a];}).slice(0,n||10).map(function(id){return S.places[id];});
+}
 function ppDelete(id){if(vals(S.sightings).some(function(x){return x.place===id;})&&!confirm('This place is used by sightings. Delete anyway?'))return;del('places',id);ppPaint();}
 function ppCustom(){var q=(($('pp-q')||{}).value||'').trim();if(!q){q=prompt('Place name:');if(!q)return;}
   var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===q.toLowerCase();});if(ex)return ppChoose(ex.id);
@@ -1631,7 +1643,7 @@ function ppChooseLocal(i){var r=PP.local[i];if(r.id)return ppChoose(r.id);ppSave
 function ppChooseResult(i){var r=PP.results[i];if(r.id)return ppChoose(r.id);ppSave(r);}
 function ppSave(r){
   var ex=vals(S.places).find(function(p){return p.name.toLowerCase()===r.name.toLowerCase()&&(p.address||'')===(r.address||'');});if(ex)return ppChoose(ex.id);
-  var p=put('places',{id:'pl_'+gid(),name:r.name,address:r.address||'',lat:r.lat||null,lng:r.lng||null});ppChoose(p.id);
+  var p=put('places',{id:'pl_'+gid(),name:r.name,address:r.address||'',lat:r.lat||null,lng:r.lng||null,created:now()});ppChoose(p.id);
 }
 function _miles(a,b,c,d){if(!a||!c)return null;var R=3958.8,r=Math.PI/180,x=Math.sin((c-a)*r/2),y=Math.sin((d-b)*r/2);var m=2*R*Math.asin(Math.sqrt(x*x+Math.cos(a*r)*Math.cos(c*r)*y*y));return m<0.1?Math.round(m*5280)+' ft':m.toFixed(1)+' mi';}
 function _withDist(list){if(!PP.loc)return list;list.forEach(function(r){r.dist=_miles(PP.loc.lat,PP.loc.lng,r.lat,r.lng);});return list;}
