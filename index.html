@@ -306,7 +306,7 @@ textarea.m-in{min-height:64px;resize:vertical}
 //  (inside the same rooms/$room node the journal uses, so the journal's
 //   existing rules already allow it and nothing collides with rooms/<room>/data)
 // ════════════════════════════════════════════════════════════════
-var APP_VERSION='v2.40';
+var APP_VERSION='v2.41';
 var COLLS=['people','categories','items','sightings','places','cards','meta','stamps','folders','refs','tray'];
 
 // ── utils ──
@@ -1206,12 +1206,12 @@ function cycleMe(){var ps=peopleList();var i=ps.findIndex(function(p){return p.i
 // ════════════ ITEMS TAB ════════════
 function viewItems(){
   var idx=sightIndex().by;
-  var h='<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search items…" value="'+esc(L.search)+'" oninput="L.search=this.value;svL();debounce(\'srch\',renderItemsGrid,200)" style="flex:1">'+
+  var h=dayBtnHTML()+'<div class="row" style="margin-bottom:8px"><input class="m-in" placeholder="Search items…" value="'+esc(L.search)+'" oninput="L.search=this.value;svL();debounce(\'srch\',renderItemsGrid,200)" style="flex:1">'+
     '<select class="m-in" style="width:auto;padding:9px 6px;font-size:13px" onchange="L.sort=this.value;svL();render()">'+
     [['recent','Recent'],['most','Most spotted'],['name','A–Z'],['spotted','Spotted only'],['never','Not spotted']].map(function(o){return'<option value="'+o[0]+'"'+(L.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>'+
     '<button class="icon-btn" title="Sticker view" onclick="L.sticker=!L.sticker;svL();render()">'+(L.sticker?'🏷️':'🖼️')+'</button>'+
     '<button class="icon-btn" title="Select several" onclick="selToggle()">'+(SEL?'✖️':'☑️')+'</button>'+
-    '<button class="icon-btn" title="Tray — back-log a batch" onclick="openTray()">📥</button>'+
+    '<button class="icon-btn" title="Day view — today\'s sightings" onclick="openDay()">📅</button>'+    '<button class="icon-btn" title="Tray — back-log a batch" onclick="openTray()">📥</button>'+
     '<button class="icon-btn" title="Logging session" onclick="openSession()">📌</button></div>';
   var ff=L.folderFilter||'all';if(ff!=='all'&&ff!=='none'&&ff!=='mystery'&&!S.folders[ff])ff=L.folderFilter='all';
   var nMys=vals(S.items).filter(function(i){return i.mystery;}).length;
@@ -1570,13 +1570,13 @@ function saveSighting(){
     if(wasNew)f.created=now();put('sightings',f);
     if(f.place){L.lastPlace=f.place;L.lastPlaceDay=tod();svL();}
     if(ctx)fulfilCell(ctx.card,ctx.cell,f.item,f);
-    closeModal(2);if(IM)rItem();if(IV&&$('mo-l'+IV.level))rIV();if($('mo-l1')&&$('mo-l1').getAttribute('data-day'))openDay($('mo-l1').getAttribute('data-day'));render();
+    closeModal(2);if(IM)rItem();if(DV&&$('dv-b'))rDay();if(DV&&$('dv-b'))rDay();if(IV&&$('mo-l'+IV.level))rIV();if($('mo-l1')&&$('mo-l1').getAttribute('data-day'))openDay($('mo-l1').getAttribute('data-day'));render();
   };
   if(f.photoD)resizeData(f.photoD,900,'jpeg',0.82).then(function(d){f.photo=imgSave(d);go();});else go();
 }
 function delSighting(){if(!confirm('Delete this sighting?'))return;var s=S.sightings[SM.f.id];if(s&&s.photo)fbDeleteImage(s.photo);
   vals(S.stamps).forEach(function(st){if(st.sid===SM.f.id)del('stamps',st.id);});
-  del('sightings',SM.f.id);closeModal(2);if(IM)rItem();if(IV&&$('mo-l'+IV.level))rIV();render();}
+  del('sightings',SM.f.id);closeModal(2);if(IM)rItem();if(DV&&$('dv-b'))rDay();if(DV&&$('dv-b'))rDay();if(IV&&$('mo-l'+IV.level))rIV();render();}
 
 // ════════════ PLACES ════════════
 // Search order: your Spotted places + Decade Journal places (instant) → Google Places (if key) → Photon → Nominatim
@@ -4615,6 +4615,56 @@ function bidLens(i){
 // the word you always add in Lens ("stockx"): copied so Gboard offers it as a one-tap suggestion
 function lensWord(){return(L.lensWord!=null?L.lensWord:'stockx');}
 function lensCopyWord(){var w=lensWord();if(!w||!navigator.clipboard||!navigator.clipboard.writeText)return;navigator.clipboard.writeText(w).catch(function(){});}
+
+// ════════════ 📅 DAY VIEW — every sighting from one day (today by default): review, sort, add notes fast ════════════
+var DV=null;
+function _dvDay(ts){var d=new Date(ts);return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function daySights(d){return vals(S.sightings).filter(function(s){return s.date===d&&S.items[s.item];});}
+function openDay(d){DV={date:d||tod(),sort:L.daySort||'time',q:'',noNote:false};rDay();}
+function _dvShift(n){var t=new Date(DV.date+'T12:00:00');t.setDate(t.getDate()+n);DV.date=_dvDay(t.getTime());rDay();}
+function _dvClock(ts){if(!ts)return'';var d=new Date(ts),h=d.getHours(),m=d.getMinutes();return((h%12)||12)+':'+(m<10?'0':'')+m+(h<12?'a':'p');}
+function rDay(){
+  var all=daySights(DV.date),q=DV.q.trim().toLowerCase();
+  var list=all.filter(function(s){var it=S.items[s.item];if(DV.noNote&&(s.note||'').trim())return false;
+    return!q||(it.name+' '+(s.note||'')+' '+placeName(s.place)).toLowerCase().indexOf(q)>=0;});
+  var key={time:function(s){return-(s.created||s.u||0);},name:function(s){return S.items[s.item].name.toLowerCase();},
+    place:function(s){return(placeName(s.place)||'~').toLowerCase();},cat:function(s){var c=cat(S.items[s.item].cat);return(c?c.name:'~').toLowerCase();}}[DV.sort];
+  list.sort(function(a,b){var x=key(a),y=key(b);return x<y?-1:x>y?1:(b.created||0)-(a.created||0);});
+  var places={},newItems=0;all.forEach(function(s){if(s.place)places[s.place]=1;var it=S.items[s.item];if(it.created&&_dvDay(it.created)===DV.date)newItems++;});
+  var isToday=DV.date===tod(),noNote=all.filter(function(s){return!(s.note||'').trim();}).length;
+  var h='<div class="mo-h"><h3>📅 '+(isToday?'Today':fmtDate(DV.date))+'</h3><button class="icon-btn" onclick="closeModal(1);DV=null;render()">✕</button></div><div class="mo-b" id="dv-b">';
+  h+='<div class="row" style="gap:6px;align-items:center;margin-bottom:6px"><button class="btn btn-s btn-sm" onclick="_dvShift(-1)">◀</button>'+
+    '<input class="m-in" type="date" value="'+DV.date+'" style="flex:1;min-width:0;padding:7px 8px" onchange="DV.date=this.value||tod();rDay()">'+
+    '<button class="btn btn-s btn-sm" onclick="_dvShift(1)">▶</button>'+(isToday?'':'<button class="btn btn-g btn-sm" onclick="DV.date=tod();rDay()">Today</button>')+'</div>';
+  h+='<div class="hint" style="margin-bottom:8px"><b>'+all.length+'</b> sighting'+(all.length===1?'':'s')+' · '+Object.keys(places).length+' place'+(Object.keys(places).length===1?'':'s')+(newItems?' · '+newItems+' new item'+(newItems===1?'':'s'):'')+(noNote?' · '+noNote+' without a note':'')+'</div>';
+  if(all.length){
+    h+='<div class="row" style="gap:6px;margin-bottom:6px"><input class="m-in" id="dv-q" placeholder="Filter…" value="'+esc(DV.q)+'" style="flex:1;min-width:0;padding:8px 10px" oninput="DV.q=this.value;debounce(\'dvq\',function(){rDay();var e=$(\'dv-q\');if(e){e.focus();e.setSelectionRange(e.value.length,e.value.length);}},250)">'+
+      '<select class="m-in" style="width:auto;padding:8px 4px;font-size:12px" onchange="DV.sort=this.value;L.daySort=this.value;svL();rDay()">'+
+      [['time','Newest first'],['place','By store'],['name','A–Z'],['cat','By category']].map(function(o){return'<option value="'+o[0]+'"'+(DV.sort===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select></div>'+
+      '<div class="chips" style="margin-bottom:8px"><button class="chip'+(!DV.noNote?' on':'')+'" onclick="DV.noNote=false;rDay()">All</button><button class="chip'+(DV.noNote?' on':'')+'" onclick="DV.noNote=true;rDay()">✏️ Needs a note ('+noNote+')</button></div>';
+  }else h+='<div class="empty" style="padding:24px"><div class="big">📅</div>Nothing spotted '+(isToday?'today':'this day')+' yet.</div>';
+  var lastHdr=null;
+  list.forEach(function(s){
+    var it=S.items[s.item],th=itemThumb(it),c=cat(it.cat),isNew=it.created&&_dvDay(it.created)===DV.date;
+    var hdr=DV.sort==='place'?(placeName(s.place)||'No place'):DV.sort==='cat'?(c?c.icon+' '+c.name:'No category'):null;
+    if(hdr!==null&&hdr!==lastHdr){h+='<div class="m-lbl" style="margin-top:10px">'+(DV.sort==='place'?'📍 ':'')+esc(hdr)+'</div>';lastHdr=hdr;}
+    h+='<div class="sec" style="padding:8px;margin-bottom:6px"><div class="row" style="gap:8px;align-items:flex-start">'+
+      '<div class="tray-img" style="width:52px;height:52px;flex-shrink:0" onclick="openItemView(\''+it.id+'\',{level:2})">'+(th?imgHTML(th):'<div class="thumb">'+(c?c.icon:'📦')+'</div>')+'</div>'+
+      '<div style="flex:1;min-width:0"><div class="row" style="gap:6px;align-items:center"><b style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px" onclick="openItemView(\''+it.id+'\',{level:2})">'+(isNew?'🆕 ':'')+esc(it.name)+'</b>'+
+        '<button class="icon-btn" title="Edit place, date, who" onclick="openSighting(\''+s.id+'\')">✏️</button></div>'+
+      '<div class="hint" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+[s.place?'📍 '+esc(placeName(s.place)):'<span style="color:var(--bad,#c00)">📍 no place</span>',(s.by||[]).map(function(p){return pdot(p,1);}).join(''),_dvClock(s.created)].filter(Boolean).join(' · ')+'</div>'+
+      '<textarea class="m-in" rows="1" placeholder="Add a note…" style="margin-top:5px;padding:6px 8px;font-size:13px;min-height:32px;resize:none" data-sid="'+s.id+'" oninput="this.style.height=\'auto\';this.style.height=this.scrollHeight+\'px\';dvNote(this)" onblur="dvNoteNow(this)">'+esc(s.note||'')+'</textarea>'+
+      '</div></div></div>';
+  });
+  h+='</div>';
+  var st=$('dv-b')?$('dv-b').scrollTop:0;openModal(h,1);var b=$('dv-b');if(b){b.scrollTop=st;b.querySelectorAll('textarea[data-sid]').forEach(function(t){if(t.value){t.style.height='auto';t.style.height=t.scrollHeight+'px';}});}
+}
+// notes save as you type (no redraw, so the keyboard stays put)
+var DV_T={};
+function dvNote(el){var id=el.getAttribute('data-sid');clearTimeout(DV_T[id]);DV_T[id]=setTimeout(function(){dvNoteNow(el);},700);}
+function dvNoteNow(el){var id=el.getAttribute('data-sid'),s=S.sightings[id];clearTimeout(DV_T[id]);if(!s)return;var v=el.value;if((s.note||'')===v)return;var x=clone(s);x.note=v;put('sightings',x);
+  var ok=el.parentNode&&el.parentNode.querySelector('.dv-ok');if(!ok){ok=document.createElement('span');ok.className='dv-ok hint';ok.style.cssText='font-size:11px;color:#16a34a';el.parentNode.appendChild(ok);}ok.textContent='✓ saved';setTimeout(function(){if(ok)ok.textContent='';},1500);}
+function dayBtnHTML(){var n=daySights(tod()).length;return n?'<button class="btn btn-s btn-block" style="margin-bottom:8px;justify-content:space-between;display:flex" onclick="openDay()"><span>📅 <b>Today</b> — '+n+' spotted</span><span class="hint">notes &amp; review →</span></button>':'';}
 
 // ════════════ START — runs last, after every module above has set up its variables ════════════
 (function(){
